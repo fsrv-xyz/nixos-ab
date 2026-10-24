@@ -6,7 +6,11 @@ let
     nodes:
     pkgs.runCommand "ab-artifacts" { } ''
       mkdir $out
-      ${lib.concatMapStrings (n: "cp -rL ${nodes.${n}.system.build.release}/update $out/${n}\n") [ "v2" "v3" "v4" ]}
+      ${lib.concatMapStrings (n: "cp -rL ${nodes.${n}.system.build.release}/update $out/${n}\n") [
+        "v2"
+        "v3"
+        "v4"
+      ]}
     '';
 in
 {
