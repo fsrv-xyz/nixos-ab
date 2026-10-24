@@ -77,6 +77,31 @@ in
       };
     };
 
+    system.build.sysupdate =
+      let
+        inherit (config.system.build) image uki;
+      in
+      pkgs.runCommand "${label}-sysupdate"
+        {
+          nativeBuildInputs = [
+            pkgs.buildPackages.jq
+            pkgs.buildPackages.zstd
+          ];
+        }
+        ''
+          mkdir $out
+          cp ${uki}/${config.system.boot.loader.ukiFile} $out/${label}.efi
+          jq -r '.[] | select(.split_path // "" | test("\\.(store|verity)\\.raw$")) | "\(.split_path) \(.uuid)"' \
+            ${image}/repart-output.json |
+            while read -r path uuid; do
+              file=$(basename "$path")
+              part=''${file%.raw}
+              zstd -q -T0 ${image}/$file -o $out/${label}_''${uuid}.''${part##*.}.raw.zst
+            done
+          cd $out
+          sha256sum * > SHA256SUMS
+        '';
+
     image.repart = {
       name = id;
       split = true;

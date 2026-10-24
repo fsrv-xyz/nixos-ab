@@ -1,3 +1,6 @@
 {
-  imports = [ ./image.nix ];
+  imports = [
+    ./image.nix
+    ./update.nix
+  ];
 }
