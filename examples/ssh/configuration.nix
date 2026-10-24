@@ -6,7 +6,7 @@
   system.stateVersion = "26.05";
   system.image = {
     id = "example";
-    version = "1";
+    version = "2";
   };
 
   services.qemuGuest.enable = true;
@@ -38,6 +38,6 @@
     };
   };
   users.users.root.openssh.authorizedKeys.keys = [
-    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKeyReplaceWithYourOwnPublicKey admin@example"
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFfuL39K50cLpgWCkwnkTTBxNyuL0IPSTk4mGxKAJ+GA admin@example"
   ];
 }
