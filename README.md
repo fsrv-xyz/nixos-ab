@@ -13,11 +13,11 @@ systemd-boot boot counting. What goes into the image is up to the consumer.
 
   outputs = { nixpkgs, nixos-ab, ... }: {
     nixosConfigurations.router = nixpkgs.lib.nixosSystem {
-      system = "x86_64-linux";
       modules = [
         nixos-ab.nixosModules.default
         ./router.nix
         {
+          nixpkgs.hostPlatform = "x86_64-linux";
           system.image.id = "router";
           system.image.version = "3";
           ab.update.url = "https://updates.example/router";
@@ -30,7 +30,7 @@ systemd-boot boot counting. What goes into the image is up to the consumer.
 
 | Option | Default | |
 |---|---|---|
-| `ab.storeSizeMiB` | `2048` | size of each store slot; every image must fit |
+| `ab.storeSizeMiB` | `2048` | size of each store slot, fixed at install; every image must fit |
 | `ab.update.url` | `null` | HTTP source; `null` disables HTTP updates |
 | `ab.rollback.timeout` | `"5min"` | time a counted boot has to reach `boot-complete.target` |
 

@@ -26,7 +26,7 @@ let
       SplitName = "-";
     }
     // fixedSize mib;
-  # repart defaults verity blocks to the 512-byte image sector size, quadrupling the hash tree
+  # verityMiB assumes 4 KiB blocks; repart's default, the 512-byte sector size, needs ~8x the hash space
   verityBlocks = {
     VerityDataBlockSizeBytes = 4096;
     VerityHashBlockSizeBytes = 4096;
@@ -116,8 +116,8 @@ in
       name = id;
       split = true;
       verityStore.enable = true;
-      # mkfs.erofs defaults to 512-byte blocks, which blkid < util-linux 2.43 fails to identify;
-      # an unidentified verity device never becomes ready for systemd
+      # with mkfs.erofs' default 512-byte blocks blkid rejects the superblock checksum (fixed in
+      # util-linux 4f4105ea, unreleased), and an unidentified verity device never becomes ready
       mkfsOptions.erofs = [ "-b4096" ];
       partitions = {
         "00-esp" = {
