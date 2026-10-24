@@ -59,6 +59,24 @@ in
     # /usr is the read-only verity store
     system.activationScripts.usrbinenv = lib.mkForce "";
 
+    systemd.repart = {
+      enable = true;
+      partitions = {
+        "10-store-verity" = { Type = "usr-verity"; } // fixedSize verityMiB;
+        "20-store" = { Type = "usr"; } // fixedSize cfg.storeSizeMiB;
+        "30-store-verity-b" = {
+          Type = "usr-verity";
+          Label = "_empty";
+        }
+        // fixedSize verityMiB;
+        "40-store-b" = {
+          Type = "usr";
+          Label = "_empty";
+        }
+        // fixedSize cfg.storeSizeMiB;
+      };
+    };
+
     image.repart = {
       name = id;
       split = true;

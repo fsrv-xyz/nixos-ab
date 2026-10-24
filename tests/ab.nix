@@ -47,5 +47,10 @@ in
           assert labels.count("ab_1") == 2, labels
           size = int(v1.succeed("lsblk -bnro SIZE,PARTLABEL /dev/vda | awk '$2==\"ab_1\"{print $1}' | sort -n | tail -1"))
           assert size == 2048 * 1024 * 1024, size
+
+      with subtest("first boot creates empty B slot"):
+          v1.wait_for_unit("systemd-repart.service")
+          rows = v1.succeed("lsblk -bnro SIZE,PARTLABEL /dev/vda | grep _empty").splitlines()
+          assert sorted(int(r.split()[0]) for r in rows) == [32 * 1024 * 1024, 2048 * 1024 * 1024], rows
     '';
 }
