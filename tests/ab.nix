@@ -6,16 +6,18 @@ let
     nodes:
     pkgs.runCommand "ab-artifacts" { } ''
       mkdir $out
-      ${lib.concatMapStrings (n: "cp -r ${nodes.${n}.system.build.sysupdate} $out/${n}\n") [ "v2" "v3" ]}
+      ${lib.concatMapStrings (n: "cp -r ${nodes.${n}.system.build.sysupdate} $out/${n}\n") [ "v2" "v3" "v4" ]}
     '';
 in
 {
   name = "ab";
+  globalTimeout = 900;
 
   defaults = {
     system.image.id = "ab";
     ab.storeSizeMiB = 2048;
     ab.update.url = "http://127.0.0.1:8080/";
+    ab.rollback.timeout = "30s";
     environment.systemPackages = [ pkgs.darkhttpd ];
     boot.kernelParams = [ "console=ttyS0,115200n8" ];
     virtualisation = {
@@ -37,13 +39,26 @@ in
     };
   nodes.v2 = version 2;
   nodes.v3 = version 3;
+  nodes.v4 = {
+    imports = [ (version 4) ];
+    systemd.services.unhealthy = {
+      requiredBy = [ "boot-complete.target" ];
+      before = [ "boot-complete.target" ];
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = "${pkgs.coreutils}/bin/false";
+      };
+    };
+  };
 
   testScript =
     { nodes, ... }:
     let
-      sysupdate = "${nodes.v1.systemd.package}/lib/systemd/systemd-sysupdate";
+      sysupdate = "/run/current-system/sw/lib/systemd/systemd-sysupdate";
+      blessBoot = "${nodes.v1.systemd.package}/lib/systemd/systemd-bless-boot";
     in
     ''
+      import json
       import os
       import subprocess
       import tempfile
@@ -102,5 +117,36 @@ in
           labels = v1.succeed("lsblk -nro PARTLABEL /dev/vda")
           assert labels.count("ab_1") == 0 and labels.count("ab_3") == 2, labels
           assert v1.succeed("ls /boot/EFI/Linux").split() == ["ab_2.efi", "ab_3.efi"]
+
+      with subtest("bad v4 rolls back to v3 unattended"):
+          v1.succeed("mount --mkdir -t 9p -o trans=virtio,ro artifacts /mnt")
+          v1.succeed("darkhttpd /mnt/v4 --port 8080 --daemon")
+          v1.succeed("updatectl update")
+          v1.reboot()
+          for _ in range(3):
+              v1.wait_for_console_text("ab-rollback: boot not blessed, rebooting")
+          # the unattended reboots left their backdoor greetings in the shell socket
+          v1.wait_for_console_text("nixos-system-v3-test")
+          shell = v1.shell
+          assert shell is not None
+          shell.setblocking(False)
+          try:
+              while shell.recv(4096):
+                  pass
+          except BlockingIOError:
+              pass
+          shell.setblocking(True)
+          v1.connected = False
+          v1.wait_for_unit("multi-user.target")
+          v1.succeed("grep IMAGE_VERSION=3 /etc/os-release")
+          v1.succeed("test -f /boot/EFI/Linux/ab_4+0-3.efi")
+          entries = json.loads(v1.succeed("bootctl list --json=short"))
+          uki = [e for e in entries if e["type"] == "type2"]
+          assert len(uki) == 2 and [e["triesLeft"] for e in uki if not e["isSelected"]] == [0], uki
+
+      with subtest("blessed v3 is not rebooted"):
+          v1.succeed("sleep 60")
+          assert float(v1.succeed("cut -d' ' -f1 /proc/uptime")) > 60
+          assert v1.succeed("${blessBoot} status").strip() == "clean"
     '';
 }
