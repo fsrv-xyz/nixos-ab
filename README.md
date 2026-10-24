@@ -20,7 +20,6 @@ systemd-boot boot counting. What goes into the image is up to the consumer.
 {
   nixpkgs.hostPlatform = "x86_64-linux";
   system.stateVersion = "26.05";
-  system.image.version = "3";
   ab.update.url = "https://updates.example/router";
 }
 ```
@@ -33,51 +32,50 @@ nixpkgs nixos-ab pins; `inputs.nixos-ab.inputs.nixpkgs.follows` swaps it.
 | Option | Default | |
 |---|---|---|
 | `ab.storeSizeMiB` | `2048` | size of each store slot, fixed at install; every image must fit |
-| `ab.update.url` | `null` | HTTP source; `null` disables HTTP updates |
+| `ab.update.url` | `null` | default source of `ab-update` |
 | `ab.rollback.timeout` | `"5min"` | time a counted boot has to reach `boot-complete.target` |
 
-`system.image.version` may only contain `[0-9A-Za-z.-]`.
+Leave `system.image.version` unset: `ab-update` numbers the images on the device.
 
 ## Install
 
 ```sh
 nix build .#router
-dd if=result/router_3.raw of=/dev/sdX bs=4M conv=fsync
+dd if=result/router.raw of=/dev/sdX bs=4M conv=fsync
 ```
 
 `result` holds the disk image and `update/`, the artifacts that roll this
-version out to installed devices. The image holds the ESP, slot A and an
+build out to installed devices. The image holds the ESP, slot A and an
 empty slot B, so the disk must be at least as large as the image. Nothing
 repartitions the disk at runtime.
 
 ## Update
 
-Raise `system.image.version` and build again:
+Build again; there is no version to raise:
 
 ```sh
 nix build .#router
-# result/update: <id>_<version>.efi, store and verity partitions (.raw.zst), SHA256SUMS
+# result/update: <id>.efi, store and verity partitions (.raw.zst), usrhash, SHA256SUMS
 ```
 
-Either serve `result/update` at `ab.update.url` and run
+Then, on the device, install it from `ab.update.url`, another URL or a
+directory such as a copy or a USB stick, and reboot when you choose:
 
 ```sh
-updatectl update
+ab-update                  # from ab.update.url
+ab-update /path/to/update
+systemctl reboot
 ```
 
-or copy it to the device (scp, USB stick) and run
-
-```sh
-/run/current-system/sw/lib/systemd/systemd-sysupdate \
-  --definitions=/etc/sysupdate-local.d --transfer-source=/path/to/update update
-```
-
-Both write into the slot not running and add the new UKI with three tries.
-Nothing updates on its own, and the reboot is up to you: `systemctl reboot`.
+`ab-update` compares the image's root hash with the running image and the UKI
+that boots next, and stops if either matches. Otherwise it numbers the image
+one above every UKI of the image on the ESP, a used-up one included, and hands
+it to `systemd-sysupdate` through a server on 127.0.0.1. sysupdate writes it
+into the slot not running and adds the UKI with three tries. Nothing updates
+on its own.
 
 An interrupted update leaves the inactive slot half-written, and sysupdate
-refuses to retry until it is cleared: run `updatectl vacuum` (or the local
-command with `vacuum` instead of `update`) before the next attempt.
+refuses to retry until it is cleared: run `ab-update vacuum` first.
 
 ## Health and rollback
 
@@ -96,7 +94,7 @@ systemd.services.uplink-check = {
 ```
 
 A boot that is not blessed within `ab.rollback.timeout` reboots itself. After
-three tries systemd-boot falls back to the previous version, which then stays
+three tries systemd-boot falls back to the previous image, which then stays
 up. Failed mounts do not stop the boot in emergency mode, they fail the health
 check. Initrd failures reboot after 10 s (`boot.panic_on_fail panic=10`); a hung
 kernel or PID 1 is caught by the hardware watchdog (`RuntimeWatchdogSec=30s`)

@@ -49,7 +49,7 @@
           defaults.imports = [ self.nixosModules.default ];
         };
         image-version =
-          assert rejects "1+2" && rejects "1_2" && !rejects "1.2-rc3";
+          assert rejects "1" && !rejects null;
           pkgs.emptyFile;
       };
     };

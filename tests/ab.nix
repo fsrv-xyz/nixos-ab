@@ -1,6 +1,6 @@
 { lib, pkgs, ... }:
 let
-  version = n: { system.image.version = toString n; };
+  build = n: { environment.etc."ab-build".text = toString n; };
   # 9p hands symlinks to the guest unresolved, so the share needs real files
   artifacts =
     nodes:
@@ -31,15 +31,15 @@ in
   nodes.v1 =
     { nodes, ... }:
     {
-      imports = [ (version 1) ];
+      imports = [ (build 1) ];
       virtualisation.qemu.options = [
         "-virtfs local,path=${artifacts nodes},mount_tag=artifacts,security_model=none,readonly=on"
       ];
     };
-  nodes.v2 = version 2;
-  nodes.v3 = version 3;
+  nodes.v2 = build 2;
+  nodes.v3 = build 3;
   nodes.v4 = {
-    imports = [ (version 4) ];
+    imports = [ (build 4) ];
     fileSystems."/broken" = {
       device = "none";
       fsType = "tmpfs";
@@ -58,7 +58,6 @@ in
   testScript =
     { nodes, ... }:
     let
-      sysupdate = "/run/current-system/sw/lib/systemd/systemd-sysupdate";
       blessBoot = "${nodes.v1.systemd.package}/lib/systemd/systemd-bless-boot";
     in
     ''
@@ -85,6 +84,9 @@ in
       def slot(label):
           return sorted(mib for name, mib in partitions() if name == label)
 
+      def build():
+          return v1.succeed("cat /etc/ab-build")
+
       def serve(version):
           v1.succeed("mount --mkdir -t 9p -o trans=virtio,ro artifacts /mnt")
           v1.succeed(f"darkhttpd /mnt/{version} --port 8080 --daemon")
@@ -95,7 +97,8 @@ in
           v1.succeed("findmnt --kernel --type tmpfs /")
           assert "ACTIVE" in v1.succeed("dmsetup info --target verity usr")
           v1.succeed("findmnt --kernel /boot | grep vfat")
-          v1.succeed("grep IMAGE_VERSION=1 /etc/os-release")
+          assert build() == "1"
+          v1.succeed("grep -x 'IMAGE_VERSION=\"\"' /etc/os-release")
           v1.succeed("test -f /boot/EFI/BOOT/BOOTX64.EFI -a -f /boot/EFI/Linux/ab_1.efi")
           assert slot("ab_1") == SLOT_MIB
 
@@ -105,44 +108,46 @@ in
       with subtest("interrupted update adds no partitions and vacuums clean"):
           serve("v2")
           before = partitions()
-          v1.succeed("systemd-run --unit=interrupted ${sysupdate} update")
+          v1.succeed("systemd-run --unit=interrupted /run/current-system/sw/bin/ab-update")
           v1.wait_until_succeeds("pgrep -f '[s]tore.raw.zst'")
           v1.succeed("systemctl kill --signal=KILL interrupted")
           v1.reboot()
           v1.wait_for_unit("multi-user.target")
           assert len(partitions()) == len(before)
-          v1.succeed("updatectl vacuum")
+          v1.succeed("ab-update vacuum")
           assert partitions() == before
 
       with subtest("update to v2 via HTTP"):
           serve("v2")
-          v1.fail("systemctl is-enabled systemd-sysupdate.timer")
-          assert v1.succeed("ls /etc/sysupdate.d").split() == ["10-store-verity.transfer", "20-store.transfer", "90-uki.transfer"]
-          v1.succeed("updatectl update")
+          assert v1.succeed("ls /etc/ab-update").split() == ["10-store-verity.transfer", "20-store.transfer", "90-uki.transfer", "url"]
+          assert "as ab_2" in v1.succeed("ab-update")
           v1.succeed("test -f /boot/EFI/Linux/ab_2+3-0.efi")
           v1.reboot()
           v1.wait_for_unit("systemd-bless-boot.service")
-          v1.succeed("grep IMAGE_VERSION=2 /etc/os-release")
+          assert build() == "2"
           v1.succeed("test -f /boot/EFI/Linux/ab_2.efi")
           assert slot("ab_1") == slot("ab_2") == SLOT_MIB
 
-      with subtest("update without newer version is a no-op"):
+      with subtest("the running image is not installed again"):
           serve("v2")
           before = partitions()
-          v1.succeed("updatectl update")
+          assert "ab_2 runs this image already" in v1.succeed("ab-update")
           assert partitions() == before
 
       with subtest("update to v3 via local directory into slot A"):
-          v1.succeed("${sysupdate} --definitions=/etc/sysupdate-local.d --transfer-source=/mnt/v3 update")
+          assert "as ab_3" in v1.succeed("ab-update /mnt/v3")
+          before = partitions()
+          assert "ab_3 holds this image already and boots next" in v1.succeed("ab-update /mnt/v3")
+          assert partitions() == before
           v1.reboot()
           v1.wait_for_unit("systemd-bless-boot.service")
-          v1.succeed("grep IMAGE_VERSION=3 /etc/os-release")
+          assert build() == "3"
           assert slot("ab_1") == [] and slot("ab_3") == SLOT_MIB
           assert v1.succeed("ls /boot/EFI/Linux").split() == ["ab_2.efi", "ab_3.efi"]
 
       with subtest("bad v4 rolls back to v3 unattended"):
           serve("v4")
-          v1.succeed("updatectl update")
+          assert "as ab_4" in v1.succeed("ab-update")
           v1.reboot()
           # every boot greets on the shell socket; an unread greeting garbles the next command's output
           for _ in range(3):
@@ -150,7 +155,7 @@ in
               v1.wait_for_console_text("ab-rollback: boot not blessed, rebooting")
               v1.connected = False
           v1.wait_for_unit("multi-user.target")
-          v1.succeed("grep IMAGE_VERSION=3 /etc/os-release")
+          assert build() == "3"
           v1.succeed("test -f /boot/EFI/Linux/ab_4+0-3.efi")
           entries = json.loads(v1.succeed("bootctl list --json=short"))
           uki = [e for e in entries if e["type"] == "type2"]
@@ -160,5 +165,11 @@ in
           v1.wait_until_succeeds("test $(systemctl show -P ExecMainExitTimestampMonotonic ab-rollback.service) -gt 0")
           v1.fail("journalctl -b -u ab-rollback.service | grep 'boot not blessed'")
           assert v1.succeed("${blessBoot} status").strip() == "clean"
+
+      with subtest("after a rollback the next image is numbered above the used-up one"):
+          serve("v2")
+          assert "as ab_5" in v1.succeed("ab-update")
+          v1.succeed("test -f /boot/EFI/Linux/ab_5+3-0.efi -a ! -e /boot/EFI/Linux/ab_4+0-3.efi")
+          assert slot("ab_3") == slot("ab_5") == SLOT_MIB
     '';
 }

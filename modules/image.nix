@@ -12,7 +12,9 @@ let
 
   # ponytail: 1/64 of data, dm-verity sha256 needs ~1/127; exact tree size if slots get tight
   verityMiB = lib.max 8 (cfg.storeSizeMiB / 64);
-  label = "${toString id}_${toString version}";
+  # ab-update numbers each later image one above the highest UKI of the image on the ESP
+  number = "1";
+  label = "${toString id}_${number}";
   fixedSize = mib: {
     SizeMinBytes = "${toString mib}M";
     SizeMaxBytes = "${toString mib}M";
@@ -44,12 +46,12 @@ in
   config = {
     assertions = [
       {
-        assertion = id != null && version != null;
-        message = "ab: system.image.id and system.image.version must be set.";
+        assertion = id != null;
+        message = "ab: system.image.id must be set.";
       }
       {
-        assertion = version == null || builtins.match "[0-9A-Za-z.-]+" version != null;
-        message = "ab: system.image.version may only contain [0-9A-Za-z.-]: '_' separates fields in artifact names, '+' starts the boot counter.";
+        assertion = version == null;
+        message = "ab: leave system.image.version unset: ab-update numbers images on the device, and systemd-boot would order UKIs by an IMAGE_VERSION before their numbers.";
       }
     ];
 
@@ -65,6 +67,7 @@ in
 
     boot.loader.grub.enable = false;
     boot.initrd.systemd.enable = true;
+    boot.uki.version = number;
     # /usr is the read-only verity store
     system.activationScripts.usrbinenv = lib.mkForce "";
 
@@ -87,11 +90,11 @@ in
         ''
     );
 
-    system.build.sysupdate =
+    system.build.update =
       let
         inherit (config.system.build) image uki;
       in
-      pkgs.runCommand "${label}-sysupdate"
+      pkgs.runCommand "${id}-update"
         {
           nativeBuildInputs = [
             pkgs.buildPackages.jq
@@ -100,21 +103,22 @@ in
         }
         ''
           mkdir $out
-          cp ${uki}/${config.system.boot.loader.ukiFile} $out/${label}.efi
+          cp ${uki}/${config.system.boot.loader.ukiFile} $out/${id}.efi
           jq -r '.[] | select(.split_path // "" | test("\\.(store|verity)\\.raw$")) | "\(.split_path) \(.uuid)"' \
             ${image}/repart-output.json |
             while read -r path uuid; do
               file=$(basename "$path")
               part=''${file%.raw}
-              zstd -q -T0 ${image}/$file -o $out/${label}_''${uuid}.''${part##*.}.raw.zst
+              zstd -q -T0 ${image}/$file -o $out/${id}_''${uuid}.''${part##*.}.raw.zst
             done
+          jq -r 'first(.[] | .roothash // empty)' ${image}/repart-output.json > $out/usrhash
           cd $out
           sha256sum * > SHA256SUMS
         '';
 
-    system.build.release = pkgs.linkFarm label {
+    system.build.release = pkgs.linkFarm id {
       ${config.image.filePath} = "${config.system.build.image}/${config.image.filePath}";
-      update = config.system.build.sysupdate;
+      update = config.system.build.update;
     };
 
     image.repart = {

@@ -11,7 +11,6 @@
 
           nixpkgs.hostPlatform = "x86_64-linux";
           system.stateVersion = "26.05";
-          system.image.version = "2";
 
           services.qemuGuest.enable = true;
 

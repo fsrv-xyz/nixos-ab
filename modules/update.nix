@@ -9,14 +9,18 @@ let
   inherit (config.system.image) id;
   format = pkgs.formats.ini { listToValue = toString; };
 
+  # templates: ab-update fills in its loopback server and the number of the running image
+  source = pattern: {
+    Type = "url-file";
+    Path = "{{.Source}}";
+    MatchPattern = pattern;
+  };
   transfer = {
-    ProtectVersion = "%A";
+    ProtectVersion = "{{.Running}}";
     Verify = "no";
   };
-  partition = source: split: type: {
-    Source = source // {
-      MatchPattern = "${id}_@v_@u.${split}.raw.zst";
-    };
+  partition = split: type: {
+    Source = source "${id}_@v_@u.${split}.raw.zst";
     Target = {
       Type = "partition";
       Path = "auto";
@@ -27,13 +31,11 @@ let
     };
     Transfer = transfer;
   };
-  transfers = source: {
-    "10-store-verity" = partition source "verity" "usr-verity";
-    "20-store" = partition source "store" "usr";
+  transfers = {
+    "10-store-verity" = partition "verity" "usr-verity";
+    "20-store" = partition "store" "usr";
     "90-uki" = {
-      Source = source // {
-        MatchPattern = "${id}_@v.efi";
-      };
+      Source = source "${id}_@v.efi";
       Target = {
         Type = "regular-file";
         Path = "/EFI/Linux";
@@ -52,33 +54,35 @@ let
       Transfer = transfer;
     };
   };
+
+  ab-update = pkgs.buildGoModule {
+    pname = "ab-update";
+    version = "0";
+    src = ../ab-update;
+    vendorHash = null;
+    env.CGO_ENABLED = 0;
+    ldflags = [
+      "-X main.bootctl=${config.systemd.package}/bin/bootctl"
+      "-X main.sysupdate=${config.systemd.package}/lib/systemd/systemd-sysupdate"
+    ];
+    meta.mainProgram = "ab-update";
+  };
 in
 {
   options.ab.update.url = lib.mkOption {
     type = lib.types.nullOr lib.types.str;
     default = null;
     example = "https://updates.example/router";
-    description = "Base URL holding the update artifacts and their SHA256SUMS. null disables HTTP updates.";
+    description = "Default source of `ab-update`: a URL serving the `update/` directory of a release.";
   };
 
   config = {
-    systemd.sysupdate = {
-      enable = true;
-      transfers = lib.mkIf (cfg.url != null) (transfers {
-        Type = "url-file";
-        Path = cfg.url;
-      });
-    };
-    # updates are triggered manually
-    systemd.timers.systemd-sysupdate.wantedBy = lib.mkForce [ ];
-
-    environment.etc = lib.mapAttrs' (name: value: {
-      name = "sysupdate-local.d/${name}.transfer";
-      value.source = format.generate "${name}.transfer" value;
-    }) (transfers {
-      Type = "regular-file";
-      Path = "/";
-      PathRelativeTo = "explicit";
-    });
+    environment.systemPackages = [ ab-update ];
+    environment.etc =
+      lib.mapAttrs' (name: value: {
+        name = "ab-update/${name}.transfer";
+        value.source = format.generate "${name}.transfer" value;
+      }) transfers
+      // lib.optionalAttrs (cfg.url != null) { "ab-update/url".text = cfg.url; };
   };
 }

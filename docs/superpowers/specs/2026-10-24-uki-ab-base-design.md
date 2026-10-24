@@ -9,17 +9,21 @@ into the image. This repo contains no use case of its own.
 ## Goals
 
 - A flake exposing a NixOS module. A consumer adds it to their `nixosSystem`, sets an
-  image id and version, and gets:
+  image id, and gets:
   - an initial raw disk image (slot A populated),
-  - a directory of update artifacts (UKI, store partition, verity partition,
-    `SHA256SUMS`) consumable by `systemd-sysupdate`.
+  - a directory of update artifacts (UKI, store partition, verity partition, root hash,
+    `SHA256SUMS`) that `ab-update` installs.
 - Boot chain: systemd-boot → UKI (kernel, systemd initrd, cmdline with `usrhash=`) →
   dm-verity protected erofs `/nix/store` → tmpfs `/`.
 - A/B: two store slots (data + verity partition each), at most two UKIs on the ESP.
   Updates always go to the inactive slot.
 - Updates via `systemd-sysupdate` from two sources (user decision):
-  - HTTP(S) pull (`url-file`),
-  - local directory (`regular-file`), e.g. after `scp` or from a USB stick.
+  - HTTP(S) pull,
+  - local directory, e.g. after `scp` or from a USB stick.
+- Images carry no version (user, after comparing with chalkos, which numbers images on
+  the node). `ab-update`, a Go helper, compares the image's root hash with the running
+  image and the UKI that boots next, numbers a new image one above every UKI of the image
+  on the ESP, and serves it to sysupdate under that number.
 - Rollback via systemd-boot boot counting (`+N` in the UKI file name) and
   `boot-complete.target`, **unattended** (user): a bad image reboots itself until
   systemd-boot falls back. Concretely:
@@ -28,8 +32,8 @@ into the image. This repo contains no use case of its own.
   - initrd/verity failures reboot instead of hanging (`boot.panic_on_fail` + `panic=N`);
   - hangs: hardware watchdog via `systemd.settings.Manager.RuntimeWatchdogSec`
     (*my call*, effective only where a watchdog device exists).
-- Updates are **only triggered manually** (user): `systemd-sysupdate-update.timer`
-  disabled. The reboot into the new version is manual too (*my call*).
+- Updates are **only triggered manually** (user): no timer, sysupdate runs only under
+  `ab-update`. The reboot into the new image is manual too (*my call*).
 - The image ships slot B empty; nothing repartitions at runtime (user, after the final
   review: a runtime repart sees a half-written B after an interrupted update as foreign
   and adds another slot).
@@ -82,22 +86,25 @@ into the image. This repo contains no use case of its own.
 | Signing / Secure Boot | out of scope; `Verify=no` for HTTP until then | user |
 | Recovery from bad image | unattended reboot until fallback | user |
 | Update trigger | manual only, no timer | user |
+| Image version | none; `ab-update` numbers images on the device | user (replaced a manual `system.image.version`) |
 | Arch | x86_64 | user |
 
 Consumer view (*my guess at the interface, names open*):
 
 ```nix
 nixos-ab.lib.mkImages { router = ./router.nix; }
-# router.nix sets system.image.version, ab.update.url; the name is system.image.id
+# router.nix sets ab.update.url; the name is system.image.id
 # → nixosConfigurations.router, packages.<system>.router = .config.system.build.release
-# .config.system.build.release    → <id>_<version>.raw (initial disk) and update/
-#                                   (update artifacts + SHA256SUMS)
+# .config.system.build.release    → <id>.raw (initial disk) and update/
+#                                   (artifacts without a version, usrhash, SHA256SUMS)
 ```
 
-Local updates reuse the same file names. *My call:* a second definitions directory
-with `PathRelativeTo=explicit`, invoked as
-`systemd-sysupdate --definitions=<local defs> --transfer-source=<dir> update`
-(present in systemd 260, see `sysupdate.d(5)`).
+`ab-update [directory | URL | vacuum]` (*my call* on the mechanism): sysupdate reads
+the artifacts over `url-file` from a server `ab-update` runs on 127.0.0.1, which renames
+them to `<id>_<N>…` and rewrites `SHA256SUMS`, so sysupdate streams into the slot from a
+directory as from a URL. Nix writes the transfer definitions as templates; `ab-update`
+fills in the server and `ProtectVersion=<running number>`, since an empty
+`IMAGE_VERSION` leaves `%A` empty.
 
 ## Left to the builder
 
@@ -105,9 +112,9 @@ with `PathRelativeTo=explicit`, invoked as
 - Slot size default and how it's set. Constraint: the A store/verity partitions must
   be fixed-size (equal to B), not `Minimize`d, or a later update into A won't fit.
 - ESP size (must hold systemd-boot + 2 UKIs + headroom).
-- Artifact naming scheme (`<id>_<version>…`, with `@u` in partition file names) and
-  transfer ordering so the UKI is written last.
-- `ProtectVersion=%A`, `InstancesMax=2`, `TriesLeft=` default.
+- Artifact naming scheme (`<id>_<N>…` on the device, with `@u` in partition file names)
+  and transfer ordering so the UKI is written last.
+- `ProtectVersion=<running number>`, `InstancesMax=2`, `TriesLeft=` default.
 - Health gating: *my call* — enable `systemd-boot-check-no-failures.service`;
   consumers add units with `RequiredBy=`/`Before=boot-complete.target`.
 - NixOS image-based hygiene (e.g. `system.switch.enable = false`, `nix.enable = false`,
@@ -120,9 +127,11 @@ Single VM, ≤ 1 GiB RAM, booting the real disk image via UEFI (no direct boot, 
 store mount):
 
 1. v1 boots from the raw image: tmpfs `/`, `/nix/store` on `/dev/mapper/usr`,
-   `IMAGE_VERSION=1`, empty B slot from the image. An update interrupted mid-transfer adds
-   no partitions, and `updatectl vacuum` clears it for the next attempt.
+   empty `IMAGE_VERSION`, `<id>_1`, empty B slot from the image. An update interrupted
+   mid-transfer adds no partitions, and `ab-update vacuum` clears it for the next attempt.
 2. Update to v2 via HTTP → reboot → v2 running, v1 still on disk.
 3. Update to v3 via local directory → reboot → v3 running (written into A).
 4. Update to a v4 that fails `boot-complete.target` → the VM reboots itself until
    tries are exhausted and systemd-boot falls back to v3; v3 then stays up (no loop).
+5. `ab-update` leaves the running image and the one that boots next alone, and after
+   the fallback numbers the next image above the used-up v4.
