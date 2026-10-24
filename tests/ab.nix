@@ -89,10 +89,23 @@ in
           size = int(v1.succeed("lsblk -bnro SIZE,PARTLABEL /dev/vda | awk '$2==\"ab_1\"{print $1}' | sort -n | tail -1"))
           assert size == 2048 * 1024 * 1024, size
 
-      with subtest("first boot creates empty B slot"):
-          v1.wait_for_unit("systemd-repart.service")
+      with subtest("image ships empty B slot"):
           rows = v1.succeed("lsblk -bnro SIZE,PARTLABEL /dev/vda | grep _empty").splitlines()
           assert sorted(int(r.split()[0]) for r in rows) == [32 * 1024 * 1024, 2048 * 1024 * 1024], rows
+
+      with subtest("interrupted update adds no partitions and vacuums clean"):
+          v1.succeed("mount --mkdir -t 9p -o trans=virtio,ro artifacts /mnt")
+          v1.succeed("darkhttpd /mnt/v2 --port 8080 --daemon")
+          parts = v1.succeed("lsblk -nro NAME /dev/vda")
+          v1.succeed("systemd-run --unit=interrupted ${sysupdate} update")
+          v1.wait_until_succeeds("pgrep -f '[s]tore.raw.zst'")
+          v1.succeed("systemctl kill --signal=KILL interrupted")
+          v1.reboot()
+          v1.wait_for_unit("multi-user.target")
+          assert v1.succeed("lsblk -nro NAME /dev/vda") == parts
+          v1.succeed("updatectl vacuum")
+          table = json.loads(v1.succeed("sfdisk --json /dev/vda"))["partitiontable"]["partitions"]
+          assert [p.get("name") for p in table].count("_empty") == 2, table
 
       with subtest("update to v2 via HTTP"):
           v1.succeed("mount --mkdir -t 9p -o trans=virtio,ro artifacts /mnt")

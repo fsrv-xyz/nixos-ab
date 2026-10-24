@@ -43,8 +43,8 @@ nix build .#nixosConfigurations.router.config.system.build.image
 dd if=result/router_3.raw of=/dev/sdX bs=4M conv=fsync
 ```
 
-The image holds the ESP and slot A. On first boot `systemd-repart` adds the
-empty slot B, so the disk needs room for a second slot.
+The image holds the ESP, slot A and an empty slot B, so the disk must be at
+least as large as the image. Nothing repartitions the disk at runtime.
 
 ## Update
 
@@ -70,6 +70,10 @@ or copy it to the device (scp, USB stick) and run
 
 Both write into the slot not running and add the new UKI with three tries.
 Nothing updates on its own, and the reboot is up to you: `systemctl reboot`.
+
+An interrupted update leaves the inactive slot half-written, and sysupdate
+refuses to retry until it is cleared: run `updatectl vacuum` (or the local
+command with `vacuum` instead of `update`) before the next attempt.
 
 ## Health and rollback
 

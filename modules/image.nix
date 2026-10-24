@@ -17,6 +17,15 @@ let
     SizeMinBytes = "${toString mib}M";
     SizeMaxBytes = "${toString mib}M";
   };
+  # B ships empty in the image: a runtime repart would see a half-written B as foreign and add another slot
+  emptySlot =
+    type: mib:
+    {
+      Type = type;
+      Label = "_empty";
+      SplitName = "-";
+    }
+    // fixedSize mib;
   # repart defaults verity blocks to the 512-byte image sector size, quadrupling the hash tree
   verityBlocks = {
     VerityDataBlockSizeBytes = 4096;
@@ -59,23 +68,24 @@ in
     # /usr is the read-only verity store
     system.activationScripts.usrbinenv = lib.mkForce "";
 
-    systemd.repart = {
-      enable = true;
-      partitions = {
-        "10-store-verity" = { Type = "usr-verity"; } // fixedSize verityMiB;
-        "20-store" = { Type = "usr"; } // fixedSize cfg.storeSizeMiB;
-        "30-store-verity-b" = {
-          Type = "usr-verity";
-          Label = "_empty";
+    # nixpkgs picks the usrhash by partition type, which the empty B slot shares
+    system.build.uki = lib.mkForce (
+      pkgs.runCommand config.system.boot.loader.ukiFile
+        {
+          nativeBuildInputs = [
+            pkgs.buildPackages.jq
+            pkgs.buildPackages.systemdUkify
+          ];
         }
-        // fixedSize verityMiB;
-        "40-store-b" = {
-          Type = "usr";
-          Label = "_empty";
-        }
-        // fixedSize cfg.storeSizeMiB;
-      };
-    };
+        ''
+          mkdir -p $out
+          usrhash=$(jq -r 'first(.[] | .roothash // empty)' ${config.system.build.intermediateImage}/repart-output.json)
+          ukify build \
+            --config=${config.boot.uki.configFile} \
+            --cmdline="init=${config.system.build.toplevel}/init ${toString config.boot.kernelParams} usrhash=$usrhash" \
+            --output="$out/${config.system.boot.loader.ukiFile}"
+        ''
+    );
 
     system.build.sysupdate =
       let
@@ -133,6 +143,8 @@ in
         }
         // fixedSize cfg.storeSizeMiB
         // verityBlocks;
+        "30-store-verity-b".repartConfig = emptySlot "usr-verity" verityMiB;
+        "40-store-b".repartConfig = emptySlot "usr" cfg.storeSizeMiB;
       };
     };
   };

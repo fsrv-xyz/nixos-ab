@@ -30,7 +30,9 @@ into the image. This repo contains no use case of its own.
     (*my call*, effective only where a watchdog device exists).
 - Updates are **only triggered manually** (user): `systemd-sysupdate-update.timer`
   disabled. The reboot into the new version is manual too (*my call*).
-- First boot: `systemd-repart` creates the empty B slot and grows what may grow.
+- The image ships slot B empty; nothing repartitions at runtime (user, after the final
+  review: a runtime repart sees a half-written B after an interrupted update as foreign
+  and adds another slot).
 - Primary architecture: x86_64.
 
 ## Non-goals (for now)
@@ -38,7 +40,8 @@ into the image. This repo contains no use case of its own.
 - Secure Boot, UKI signing, signed `SHA256SUMS` (user: later).
 - Any persistent data: no state/var partition, no persisted machine-id, logs, keys.
 - aarch64 builds and tests (don't block them gratuitously, don't test them).
-- Installer flow (USB boot that installs to internal disk). Install = `dd` raw image.
+- Installer flow (USB boot that installs to internal disk). Install = `dd` raw image,
+  which holds both slots.
 - Delta updates, configuration changes without a new image.
 - Anything consumer-specific (networking, services, users).
 
@@ -75,7 +78,7 @@ into the image. This repo contains no use case of its own.
 | Store | erofs + dm-verity via nixpkgs `image.repart.verityStore` | my call, user ok |
 | Root | `/` tmpfs, nothing persisted | user |
 | Update sources | HTTP pull **and** local directory | user |
-| Initial install | raw image with slot A; B created by repart at first boot | my call, user ok |
+| Initial install | raw image with slot A and an empty slot B | user (replaced "B by repart at first boot") |
 | Signing / Secure Boot | out of scope; `Verify=no` for HTTP until then | user |
 | Recovery from bad image | unattended reboot until fallback | user |
 | Update trigger | manual only, no timer | user |
@@ -125,7 +128,8 @@ Single VM, ≤ 1 GiB RAM, booting the real disk image via UEFI (no direct boot, 
 store mount):
 
 1. v1 boots from the raw image: tmpfs `/`, `/nix/store` on `/dev/mapper/usr`,
-   `IMAGE_VERSION=1`, empty B slot created by repart.
+   `IMAGE_VERSION=1`, empty B slot from the image. An update interrupted mid-transfer adds
+   no partitions, and `updatectl vacuum` clears it for the next attempt.
 2. Update to v2 via HTTP → reboot → v2 running, v1 still on disk.
 3. Update to v3 via local directory → reboot → v3 running (written into A).
 4. Update to a v4 that fails `boot-complete.target` → the VM reboots itself until
