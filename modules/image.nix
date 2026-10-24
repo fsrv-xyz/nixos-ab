@@ -112,6 +112,11 @@ in
           sha256sum * > SHA256SUMS
         '';
 
+    system.build.release = pkgs.linkFarm label {
+      ${config.image.filePath} = "${config.system.build.image}/${config.image.filePath}";
+      update = config.system.build.sysupdate;
+    };
+
     image.repart = {
       name = id;
       split = true;

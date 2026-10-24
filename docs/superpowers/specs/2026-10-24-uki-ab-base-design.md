@@ -98,8 +98,8 @@ nixpkgs.lib.nixosSystem {
     }
   ];
 }
-# .config.system.build.image      → initial raw disk
-# .config.system.build.sysupdate  → update artifacts + SHA256SUMS
+# .config.system.build.release    → <id>_<version>.raw (initial disk) and update/
+#                                   (update artifacts + SHA256SUMS)
 ```
 
 Local updates reuse the same file names. *My call:* a second definitions directory

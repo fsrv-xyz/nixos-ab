@@ -6,7 +6,7 @@ let
     nodes:
     pkgs.runCommand "ab-artifacts" { } ''
       mkdir $out
-      ${lib.concatMapStrings (n: "cp -r ${nodes.${n}.system.build.sysupdate} $out/${n}\n") [ "v2" "v3" "v4" ]}
+      ${lib.concatMapStrings (n: "cp -rL ${nodes.${n}.system.build.release}/update $out/${n}\n") [ "v2" "v3" "v4" ]}
     '';
 in
 {
@@ -70,7 +70,7 @@ in
       disk = tempfile.NamedTemporaryFile()
       subprocess.run([
         "${pkgs.qemu_kvm}/bin/qemu-img", "create", "-f", "qcow2",
-        "-b", "${nodes.v1.system.build.image}/${nodes.v1.image.filePath}", "-F", "raw",
+        "-b", "${nodes.v1.system.build.release}/${nodes.v1.image.filePath}", "-F", "raw",
         disk.name, "8G",
       ], check=True)
       os.environ["NIX_DISK_IMAGE"] = disk.name

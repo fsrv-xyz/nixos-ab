@@ -11,7 +11,9 @@ systemd-boot boot counting. What goes into the image is up to the consumer.
 {
   inputs.nixos-ab.url = "git+https://example.org/nixos-ab.git";
 
-  outputs = { nixpkgs, nixos-ab, ... }: {
+  outputs = { self, nixpkgs, nixos-ab, ... }: {
+    packages.x86_64-linux.router = self.nixosConfigurations.router.config.system.build.release;
+
     nixosConfigurations.router = nixpkgs.lib.nixosSystem {
       modules = [
         nixos-ab.nixosModules.default
@@ -39,23 +41,25 @@ systemd-boot boot counting. What goes into the image is up to the consumer.
 ## Install
 
 ```sh
-nix build .#nixosConfigurations.router.config.system.build.image
+nix build .#router
 dd if=result/router_3.raw of=/dev/sdX bs=4M conv=fsync
 ```
 
-The image holds the ESP, slot A and an empty slot B, so the disk must be at
-least as large as the image. Nothing repartitions the disk at runtime.
+`result` holds the disk image and `update/`, the artifacts that roll this
+version out to installed devices. The image holds the ESP, slot A and an
+empty slot B, so the disk must be at least as large as the image. Nothing
+repartitions the disk at runtime.
 
 ## Update
 
-Build the artifacts of the new version:
+Raise `system.image.version` and build again:
 
 ```sh
-nix build .#nixosConfigurations.router.config.system.build.sysupdate
-# <id>_<version>.efi, store and verity partitions (.raw.zst), SHA256SUMS
+nix build .#router
+# result/update: <id>_<version>.efi, store and verity partitions (.raw.zst), SHA256SUMS
 ```
 
-Either serve that directory at `ab.update.url` and run
+Either serve `result/update` at `ab.update.url` and run
 
 ```sh
 updatectl update
@@ -65,7 +69,7 @@ or copy it to the device (scp, USB stick) and run
 
 ```sh
 /run/current-system/sw/lib/systemd/systemd-sysupdate \
-  --definitions=/etc/sysupdate-local.d --transfer-source=/path/to/artifacts update
+  --definitions=/etc/sysupdate-local.d --transfer-source=/path/to/update update
 ```
 
 Both write into the slot not running and add the new UKI with three tries.
