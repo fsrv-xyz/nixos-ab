@@ -87,12 +87,13 @@ into the image. This repo contains no use case of its own.
 | Recovery from bad image | unattended reboot until fallback | user |
 | Update trigger | manual only, no timer | user |
 | Image version | none; `ab-update` numbers images on the device | user (replaced a manual `system.image.version`) |
+| nixpkgs | not pinned by nixos-ab; the consumer passes it, `tests/` pins its own | user |
 | Arch | x86_64 | user |
 
 Consumer view (*my guess at the interface, names open*):
 
 ```nix
-nixos-ab.lib.mkImages { router = ./router.nix; }
+nixos-ab.lib.mkImages nixpkgs { router = ./router.nix; }
 # router.nix sets ab.update.url; the name is system.image.id
 # → nixosConfigurations.router, packages.<system>.router = .config.system.build.release
 # .config.system.build.release    → <id>.raw (initial disk) and update/

@@ -1,9 +1,12 @@
 {
-  inputs.nixos-ab.url = "path:../..";
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+    nixos-ab.url = "path:../..";
+  };
 
   outputs =
-    { nixos-ab, ... }:
-    nixos-ab.lib.mkImages {
+    { nixpkgs, nixos-ab, ... }:
+    nixos-ab.lib.mkImages nixpkgs {
       example =
         { modulesPath, ... }:
         {

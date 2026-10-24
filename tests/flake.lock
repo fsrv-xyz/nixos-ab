@@ -1,5 +1,16 @@
 {
   "nodes": {
+    "nixos-ab": {
+      "locked": {
+        "path": "..",
+        "type": "path"
+      },
+      "original": {
+        "path": "..",
+        "type": "path"
+      },
+      "parent": []
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1792615934,
@@ -18,6 +29,7 @@
     },
     "root": {
       "inputs": {
+        "nixos-ab": "nixos-ab",
         "nixpkgs": "nixpkgs"
       }
     }

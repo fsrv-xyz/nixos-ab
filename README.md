@@ -9,9 +9,12 @@ systemd-boot boot counting. What goes into the image is up to the consumer.
 
 ```nix
 {
-  inputs.nixos-ab.url = "git+https://example.org/nixos-ab.git";
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+    nixos-ab.url = "git+https://example.org/nixos-ab.git";
+  };
 
-  outputs = { nixos-ab, ... }: nixos-ab.lib.mkImages { router = ./router.nix; };
+  outputs = { nixpkgs, nixos-ab, ... }: nixos-ab.lib.mkImages nixpkgs { router = ./router.nix; };
 }
 ```
 
@@ -25,8 +28,9 @@ systemd-boot boot counting. What goes into the image is up to the consumer.
 ```
 
 `mkImages` turns each attribute into `nixosConfigurations.<name>` and the
-package `<name>`, and uses the name as `system.image.id`. It builds with the
-nixpkgs nixos-ab pins; `inputs.nixos-ab.inputs.nixpkgs.follows` swaps it.
+package `<name>`, and uses the name as `system.image.id`. nixos-ab pins no
+nixpkgs: the one you pass decides the NixOS release. Its systemd needs the
+sysupdate features used here; the tests run on nixos-26.05 (systemd 260).
 `nixosModules.default` is the module alone, for wiring by hand.
 
 | Option | Default | |
@@ -114,7 +118,7 @@ up no routable address is not blessed and rolls back.
 ## Test
 
 ```sh
-nix build .#checks.x86_64-linux.ab
+nix build ./tests#checks.x86_64-linux.ab
 ```
 
 One QEMU VM boots the image via UEFI, updates over HTTP and from a local
