@@ -48,6 +48,9 @@ in
       '';
     };
 
+    # a failed mount would otherwise park the boot in emergency mode, out of reach of the rollback timer
+    systemd.enableEmergencyMode = lib.mkDefault false;
+
     boot.kernelParams = [
       "boot.panic_on_fail"
       "panic=10"

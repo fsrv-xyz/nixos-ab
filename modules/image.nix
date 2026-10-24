@@ -39,8 +39,8 @@ in
         message = "ab: system.image.id and system.image.version must be set.";
       }
       {
-        assertion = !lib.hasInfix "_" (toString version);
-        message = "ab: system.image.version must not contain '_', it separates fields in artifact names.";
+        assertion = version == null || builtins.match "[0-9A-Za-z.-]+" version != null;
+        message = "ab: system.image.version may only contain [0-9A-Za-z.-]: '_' separates fields in artifact names, '+' starts the boot counter.";
       }
     ];
 

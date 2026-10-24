@@ -34,7 +34,7 @@ systemd-boot boot counting. What goes into the image is up to the consumer.
 | `ab.update.url` | `null` | HTTP source; `null` disables HTTP updates |
 | `ab.rollback.timeout` | `"5min"` | time a counted boot has to reach `boot-complete.target` |
 
-`system.image.version` must not contain `_`.
+`system.image.version` may only contain `[0-9A-Za-z.-]`.
 
 ## Install
 
@@ -89,8 +89,10 @@ systemd.services.uplink-check = {
 
 A boot that is not blessed within `ab.rollback.timeout` reboots itself. After
 three tries systemd-boot falls back to the previous version, which then stays
-up. Initrd failures reboot after 10 s (`boot.panic_on_fail panic=10`); hangs are
-caught by the hardware watchdog (`RuntimeWatchdogSec=30s`) where one exists.
+up. Failed mounts do not stop the boot in emergency mode, they fail the health
+check. Initrd failures reboot after 10 s (`boot.panic_on_fail panic=10`); a hung
+kernel or PID 1 is caught by the hardware watchdog (`RuntimeWatchdogSec=30s`)
+where one exists.
 
 ## Not included
 

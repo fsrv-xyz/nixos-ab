@@ -41,6 +41,11 @@ in
   nodes.v3 = version 3;
   nodes.v4 = {
     imports = [ (version 4) ];
+    fileSystems."/broken" = {
+      device = "none";
+      fsType = "tmpfs";
+      options = [ "bogus" ];
+    };
     systemd.services.unhealthy = {
       requiredBy = [ "boot-complete.target" ];
       before = [ "boot-complete.target" ];
