@@ -8,16 +8,17 @@
     { nixpkgs, nixos-ab, ... }:
     let
       pkgs = nixpkgs.legacyPackages.x86_64-linux;
+      image =
+        module:
+        (nixos-ab.lib.mkImages nixpkgs {
+          ab = {
+            imports = [ module ];
+            nixpkgs.hostPlatform = "x86_64-linux";
+          };
+        }).nixosConfigurations.ab;
       rejects =
         version:
-        builtins.any (a: !a.assertion)
-          (nixos-ab.lib.mkImages nixpkgs {
-            ab = {
-              nixpkgs.hostPlatform = "x86_64-linux";
-              system.stateVersion = nixpkgs.lib.trivial.release;
-              system.image.version = version;
-            };
-          }).nixosConfigurations.ab.config.assertions;
+        builtins.any (a: !a.assertion) (image { system.image.version = version; }).config.assertions;
     in
     {
       checks.x86_64-linux = {
@@ -27,6 +28,11 @@
         };
         image-version =
           assert rejects "1" && !rejects null;
+          pkgs.emptyFile;
+        # nixpkgs warns when system.stateVersion stays at its option default
+        state-version =
+          assert
+            (image { }).options.system.stateVersion.highestPrio < (nixpkgs.lib.mkOptionDefault { }).priority;
           pkgs.emptyFile;
       };
     };

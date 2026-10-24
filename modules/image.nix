@@ -59,6 +59,8 @@ in
       fsType = "tmpfs";
       options = [ "mode=0755" ];
     };
+    # / is tmpfs: no state from an older release to stay compatible with
+    system.stateVersion = lib.mkDefault config.system.nixos.release;
     fileSystems."/boot" = {
       device = "/dev/disk/by-designator/esp";
       fsType = "vfat";

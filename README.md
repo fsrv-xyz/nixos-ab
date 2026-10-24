@@ -22,7 +22,6 @@ systemd-boot boot counting. What goes into the image is up to the consumer.
 # router.nix
 {
   nixpkgs.hostPlatform = "x86_64-linux";
-  system.stateVersion = "26.05";
   ab.update.url = "https://updates.example/router";
 }
 ```
@@ -40,6 +39,8 @@ sysupdate features used here; the tests run on nixos-26.05 (systemd 260).
 | `ab.rollback.timeout` | `"5min"` | time a counted boot has to reach `boot-complete.target` |
 
 Leave `system.image.version` unset: `ab-update` numbers the images on the device.
+`system.stateVersion` follows the release you build with, as nothing survives a
+reboot; set it yourself once a device keeps data on a partition of its own.
 
 ## Install
 
