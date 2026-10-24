@@ -87,17 +87,9 @@ into the image. This repo contains no use case of its own.
 Consumer view (*my guess at the interface, names open*):
 
 ```nix
-nixpkgs.lib.nixosSystem {
-  modules = [
-    nixos-ab.nixosModules.default
-    ./router.nix
-    {
-      system.image.id = "router";
-      system.image.version = "3";
-      ab.update.url = "https://updates.example/router";
-    }
-  ];
-}
+nixos-ab.lib.mkImages { router = ./router.nix; }
+# router.nix sets system.image.version, ab.update.url; the name is system.image.id
+# → nixosConfigurations.router, packages.<system>.router = .config.system.build.release
 # .config.system.build.release    → <id>_<version>.raw (initial disk) and update/
 #                                   (update artifacts + SHA256SUMS)
 ```

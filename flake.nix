@@ -8,22 +8,40 @@
       rejects =
         version:
         builtins.any (a: !a.assertion)
-          (nixpkgs.lib.nixosSystem {
-            modules = [
-              self.nixosModules.default
-              {
-                nixpkgs.hostPlatform = "x86_64-linux";
-                system.stateVersion = nixpkgs.lib.trivial.release;
-                system.image = {
-                  id = "ab";
-                  inherit version;
-                };
-              }
-            ];
-          }).config.assertions;
+          (self.lib.mkImages {
+            ab = {
+              nixpkgs.hostPlatform = "x86_64-linux";
+              system.stateVersion = nixpkgs.lib.trivial.release;
+              system.image.version = version;
+            };
+          }).nixosConfigurations.ab.config.assertions;
     in
     {
       nixosModules.default = ./modules;
+
+      lib.mkImages =
+        images:
+        let
+          systems = nixpkgs.lib.mapAttrs (
+            name: module:
+            nixpkgs.lib.nixosSystem {
+              modules = [
+                self.nixosModules.default
+                { system.image.id = nixpkgs.lib.mkDefault name; }
+                module
+              ];
+            }
+          ) images;
+        in
+        {
+          nixosConfigurations = systems;
+          packages = nixpkgs.lib.foldlAttrs (
+            packages: name: nixos:
+            nixpkgs.lib.recursiveUpdate packages {
+              ${nixos.pkgs.stdenv.hostPlatform.system}.${name} = nixos.config.system.build.release;
+            }
+          ) { } systems;
+        };
 
       checks.x86_64-linux = {
         ab = pkgs.testers.runNixOSTest {

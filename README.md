@@ -11,24 +11,24 @@ systemd-boot boot counting. What goes into the image is up to the consumer.
 {
   inputs.nixos-ab.url = "git+https://example.org/nixos-ab.git";
 
-  outputs = { self, nixpkgs, nixos-ab, ... }: {
-    packages.x86_64-linux.router = self.nixosConfigurations.router.config.system.build.release;
-
-    nixosConfigurations.router = nixpkgs.lib.nixosSystem {
-      modules = [
-        nixos-ab.nixosModules.default
-        ./router.nix
-        {
-          nixpkgs.hostPlatform = "x86_64-linux";
-          system.image.id = "router";
-          system.image.version = "3";
-          ab.update.url = "https://updates.example/router";
-        }
-      ];
-    };
-  };
+  outputs = { nixos-ab, ... }: nixos-ab.lib.mkImages { router = ./router.nix; };
 }
 ```
+
+```nix
+# router.nix
+{
+  nixpkgs.hostPlatform = "x86_64-linux";
+  system.stateVersion = "26.05";
+  system.image.version = "3";
+  ab.update.url = "https://updates.example/router";
+}
+```
+
+`mkImages` turns each attribute into `nixosConfigurations.<name>` and the
+package `<name>`, and uses the name as `system.image.id`. It builds with the
+nixpkgs nixos-ab pins; `inputs.nixos-ab.inputs.nixpkgs.follows` swaps it.
+`nixosModules.default` is the module alone, for wiring by hand.
 
 | Option | Default | |
 |---|---|---|
