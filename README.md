@@ -11,7 +11,7 @@ rollback uses systemd-boot boot counting. What goes into the image is up to the 
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
-    nixos-ab.url = "git+ssh://git@github.com/fsrv-xyz/nixos-ab";
+    nixos-ab.url = "git+https://github.com/fsrv-xyz/nixos-ab";
   };
 
   outputs = { nixpkgs, nixos-ab, ... }: nixos-ab.lib.mkImages nixpkgs { router = ./router.nix; };
