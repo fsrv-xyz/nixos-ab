@@ -19,7 +19,6 @@ in
     ab.update.url = "http://127.0.0.1:8080/";
     ab.rollback.timeout = "30s";
     environment.systemPackages = [ pkgs.darkhttpd ];
-    boot.kernelParams = [ "console=ttyS0,115200n8" ];
     virtualisation = {
       memorySize = 1024;
       directBoot.enable = false;
@@ -76,6 +75,20 @@ in
       ], check=True)
       os.environ["NIX_DISK_IMAGE"] = disk.name
 
+      SLOT_MIB = [32, 2048]
+
+      # not lsblk: its udev-sourced labels miss sysupdate's relabels
+      def partitions():
+          table = json.loads(v1.succeed("sfdisk --json /dev/vda"))["partitiontable"]
+          return [(p.get("name"), p["size"] * table["sectorsize"] // 2**20) for p in table["partitions"]]
+
+      def slot(label):
+          return sorted(mib for name, mib in partitions() if name == label)
+
+      def serve(version):
+          v1.succeed("mount --mkdir -t 9p -o trans=virtio,ro artifacts /mnt")
+          v1.succeed(f"darkhttpd /mnt/{version} --port 8080 --daemon")
+
       with subtest("v1 boots from disk"):
           v1.start(allow_reboot=True)
           v1.wait_for_unit("multi-user.target")
@@ -84,77 +97,58 @@ in
           v1.succeed("findmnt --kernel /boot | grep vfat")
           v1.succeed("grep IMAGE_VERSION=1 /etc/os-release")
           v1.succeed("test -f /boot/EFI/BOOT/BOOTX64.EFI -a -f /boot/EFI/Linux/ab_1.efi")
-          labels = v1.succeed("lsblk -nro PARTLABEL /dev/vda")
-          assert labels.count("ab_1") == 2, labels
-          size = int(v1.succeed("lsblk -bnro SIZE,PARTLABEL /dev/vda | awk '$2==\"ab_1\"{print $1}' | sort -n | tail -1"))
-          assert size == 2048 * 1024 * 1024, size
+          assert slot("ab_1") == SLOT_MIB
 
       with subtest("image ships empty B slot"):
-          rows = v1.succeed("lsblk -bnro SIZE,PARTLABEL /dev/vda | grep _empty").splitlines()
-          assert sorted(int(r.split()[0]) for r in rows) == [32 * 1024 * 1024, 2048 * 1024 * 1024], rows
+          assert slot("_empty") == SLOT_MIB
 
       with subtest("interrupted update adds no partitions and vacuums clean"):
-          v1.succeed("mount --mkdir -t 9p -o trans=virtio,ro artifacts /mnt")
-          v1.succeed("darkhttpd /mnt/v2 --port 8080 --daemon")
-          parts = v1.succeed("lsblk -nro NAME /dev/vda")
+          serve("v2")
+          before = partitions()
           v1.succeed("systemd-run --unit=interrupted ${sysupdate} update")
           v1.wait_until_succeeds("pgrep -f '[s]tore.raw.zst'")
           v1.succeed("systemctl kill --signal=KILL interrupted")
           v1.reboot()
           v1.wait_for_unit("multi-user.target")
-          assert v1.succeed("lsblk -nro NAME /dev/vda") == parts
+          assert len(partitions()) == len(before)
           v1.succeed("updatectl vacuum")
-          table = json.loads(v1.succeed("sfdisk --json /dev/vda"))["partitiontable"]["partitions"]
-          assert [p.get("name") for p in table].count("_empty") == 2, table
+          assert partitions() == before
 
       with subtest("update to v2 via HTTP"):
-          v1.succeed("mount --mkdir -t 9p -o trans=virtio,ro artifacts /mnt")
+          serve("v2")
           v1.fail("systemctl is-enabled systemd-sysupdate.timer")
           assert v1.succeed("ls /etc/sysupdate.d").split() == ["10-store-verity.transfer", "20-store.transfer", "90-uki.transfer"]
-          v1.succeed("darkhttpd /mnt/v2 --port 8080 --daemon")
           v1.succeed("updatectl update")
           v1.succeed("test -f /boot/EFI/Linux/ab_2+3-0.efi")
           v1.reboot()
           v1.wait_for_unit("systemd-bless-boot.service")
           v1.succeed("grep IMAGE_VERSION=2 /etc/os-release")
           v1.succeed("test -f /boot/EFI/Linux/ab_2.efi")
-          labels = v1.succeed("lsblk -nro PARTLABEL /dev/vda")
-          assert labels.count("ab_1") == 2 and labels.count("ab_2") == 2, labels
+          assert slot("ab_1") == slot("ab_2") == SLOT_MIB
 
       with subtest("update without newer version is a no-op"):
-          v1.succeed("mount --mkdir -t 9p -o trans=virtio,ro artifacts /mnt")
-          v1.succeed("darkhttpd /mnt/v2 --port 8080 --daemon")
+          serve("v2")
+          before = partitions()
           v1.succeed("updatectl update")
-          assert v1.succeed("lsblk -nro PARTLABEL /dev/vda") == labels
+          assert partitions() == before
 
       with subtest("update to v3 via local directory into slot A"):
           v1.succeed("${sysupdate} --definitions=/etc/sysupdate-local.d --transfer-source=/mnt/v3 update")
           v1.reboot()
           v1.wait_for_unit("systemd-bless-boot.service")
           v1.succeed("grep IMAGE_VERSION=3 /etc/os-release")
-          labels = v1.succeed("lsblk -nro PARTLABEL /dev/vda")
-          assert labels.count("ab_1") == 0 and labels.count("ab_3") == 2, labels
+          assert slot("ab_1") == [] and slot("ab_3") == SLOT_MIB
           assert v1.succeed("ls /boot/EFI/Linux").split() == ["ab_2.efi", "ab_3.efi"]
 
       with subtest("bad v4 rolls back to v3 unattended"):
-          v1.succeed("mount --mkdir -t 9p -o trans=virtio,ro artifacts /mnt")
-          v1.succeed("darkhttpd /mnt/v4 --port 8080 --daemon")
+          serve("v4")
           v1.succeed("updatectl update")
           v1.reboot()
+          # every boot greets on the shell socket; an unread greeting garbles the next command's output
           for _ in range(3):
+              v1.connect()
               v1.wait_for_console_text("ab-rollback: boot not blessed, rebooting")
-          # the unattended reboots left their backdoor greetings in the shell socket
-          v1.wait_for_console_text("nixos-system-v3-test")
-          shell = v1.shell
-          assert shell is not None
-          shell.setblocking(False)
-          try:
-              while shell.recv(4096):
-                  pass
-          except BlockingIOError:
-              pass
-          shell.setblocking(True)
-          v1.connected = False
+              v1.connected = False
           v1.wait_for_unit("multi-user.target")
           v1.succeed("grep IMAGE_VERSION=3 /etc/os-release")
           v1.succeed("test -f /boot/EFI/Linux/ab_4+0-3.efi")
@@ -163,8 +157,8 @@ in
           assert len(uki) == 2 and [e["triesLeft"] for e in uki if not e["isSelected"]] == [0], uki
 
       with subtest("blessed v3 is not rebooted"):
-          v1.succeed("sleep 60")
-          assert float(v1.succeed("cut -d' ' -f1 /proc/uptime")) > 60
+          v1.wait_until_succeeds("test $(systemctl show -P ExecMainExitTimestampMonotonic ab-rollback.service) -gt 0")
+          v1.fail("journalctl -b -u ab-rollback.service | grep 'boot not blessed'")
           assert v1.succeed("${blessBoot} status").strip() == "clean"
     '';
 }
