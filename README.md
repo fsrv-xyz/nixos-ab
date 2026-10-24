@@ -2,8 +2,8 @@
 
 Base for image-based A/B NixOS systems built from systemd parts:
 systemd-boot → UKI → dm-verity protected erofs `/nix/store` → tmpfs `/`.
-Updates go through `systemd-sysupdate` into the inactive slot, rollback uses
-systemd-boot boot counting. What goes into the image is up to the consumer.
+Updates go through `ab-update` and `systemd-sysupdate` into the inactive slot,
+rollback uses systemd-boot boot counting. What goes into the image is up to the consumer.
 
 ## Use
 
@@ -11,7 +11,7 @@ systemd-boot boot counting. What goes into the image is up to the consumer.
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
-    nixos-ab.url = "git+https://example.org/nixos-ab.git";
+    nixos-ab.url = "git+ssh://git@github.com/fsrv-xyz/nixos-ab";
   };
 
   outputs = { nixpkgs, nixos-ab, ... }: nixos-ab.lib.mkImages nixpkgs { router = ./router.nix; };
@@ -54,6 +54,10 @@ build out to installed devices. The image holds the ESP, slot A and an
 empty slot B, so the disk must be at least as large as the image. Nothing
 repartitions the disk at runtime.
 
+The machine boots it via UEFI with Secure Boot off. Its disk driver must be in
+the initrd: NixOS adds none for virtio, so a QEMU or Proxmox guest imports
+`profiles/qemu-guest.nix`, as the example does.
+
 ## Update
 
 Build again; there is no version to raise:
@@ -67,9 +71,18 @@ Then, on the device, install it from `ab.update.url`, another URL or a
 directory such as a copy or a USB stick, and reboot when you choose:
 
 ```sh
-ab-update                  # from ab.update.url
+ab-update                                # from ab.update.url
+ab-update https://updates.example/router/
 ab-update /path/to/update
 systemctl reboot
+```
+
+Without a web server, serve `result/update` from your machine through an SSH
+tunnel; sysupdate still streams it straight into the slot:
+
+```sh
+python3 -m http.server 8080 --bind 127.0.0.1 -d result/update &
+ssh -R 8080:127.0.0.1:8080 root@device ab-update http://127.0.0.1:8080/
 ```
 
 `ab-update` compares the image's root hash with the running image and the UKI
@@ -119,8 +132,11 @@ up no routable address is not blessed and rolls back.
 ## Test
 
 ```sh
-nix build ./tests#checks.x86_64-linux.ab
+nix flake check ./tests    # on x86_64-linux with KVM
 ```
 
-One QEMU VM boots the image via UEFI, updates over HTTP and from a local
-directory, and rolls back from an image that fails its health check.
+One QEMU VM boots the image via UEFI, clears an interrupted update, updates
+over HTTP and from a local directory, leaves the running and the staged image
+alone, rolls back from an image that fails its health check and numbers the
+next image above the used-up one. Two evaluation checks cover the
+`system.image.version` assertion and the `system.stateVersion` default.
