@@ -109,7 +109,7 @@ where one exists.
 
 ## Examples
 
-[`examples/ssh`](examples/ssh/flake.nix): a minimal IPv6-only image for QEMU
+[`examples/ssh`](examples/ssh): a minimal IPv6-only image for QEMU
 and Proxmox (networkd, SLAAC), reachable only by SSH key. An update that brings
 up no routable address is not blessed and rolls back.
 

@@ -32,11 +32,7 @@
     },
     "root": {
       "inputs": {
-        "nixos-ab": "nixos-ab",
-        "nixpkgs": [
-          "nixos-ab",
-          "nixpkgs"
-        ]
+        "nixos-ab": "nixos-ab"
       }
     }
   },
