@@ -103,6 +103,11 @@ where one exists.
 - Secure Boot and signing of UKIs or `SHA256SUMS`; HTTP transfers use `Verify=no`.
 - Persistent state: `/` is tmpfs, only the ESP and the store slots survive a reboot.
 
+## Examples
+
+[`examples/ssh`](examples/ssh/flake.nix): a minimal image reachable only by
+SSH key.
+
 ## Test
 
 ```sh
