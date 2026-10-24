@@ -59,11 +59,11 @@ into the image. This repo contains no use case of its own.
 
 ## Constraints
 
-- Build/test host: `root@nix-lab.backend.earth` (NixOS 26.05, x86_64, KVM, 4 cores).
-  It runs microVMs and other workloads; ~3 GB RAM free. Rules: one test VM at a
-  time, ≤ 1 GiB RAM per VM, don't touch existing processes or system config.
+- Build/test host: a shared x86_64 NixOS machine with KVM that runs other workloads;
+  ~3 GB RAM free. Rules: one test VM at a time, ≤ 1 GiB RAM per VM, don't touch
+  existing processes or system config.
 - Local machine is aarch64-darwin with no Linux builder; all builds run on the host.
-- nixpkgs: `nixos-26.05` (systemd 260.2). *My call.*
+- nixpkgs: not pinned by nixos-ab; the tests use `nixos-26.05` (systemd 260). *User.*
 - Known pitfalls (from earlier work, `~/GIT/brain/systemd-sysupdate-nixos-pitfalls.md`):
   - UKI target `Mode=0644`, never `0444` — read-only FAT attribute disables boot counting.
   - `PartitionUUID=@u` in the target is invalid; put `@u` into the source
