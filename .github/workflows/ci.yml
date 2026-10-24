@@ -40,6 +40,9 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
           test -w /dev/kvm
+      # nixpkgs' image builder runs unshare --map-root-user, which Ubuntu's AppArmor default denies
+      - name: Allow user namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - uses: actions/checkout@v7
       - uses: cachix/install-nix-action@v31
         with:
