@@ -1,7 +1,13 @@
-{ config, lib, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 let
   cfg = config.ab.update;
   inherit (config.system.image) id;
+  format = pkgs.formats.ini { listToValue = toString; };
 
   transfer = {
     ProtectVersion = "%A";
@@ -65,5 +71,14 @@ in
     };
     # updates are triggered manually
     systemd.timers.systemd-sysupdate.wantedBy = lib.mkForce [ ];
+
+    environment.etc = lib.mapAttrs' (name: value: {
+      name = "sysupdate-local.d/${name}.transfer";
+      value.source = format.generate "${name}.transfer" value;
+    }) (transfers {
+      Type = "regular-file";
+      Path = "/";
+      PathRelativeTo = "explicit";
+    });
   };
 }

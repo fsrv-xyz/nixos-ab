@@ -6,7 +6,7 @@ let
     nodes:
     pkgs.runCommand "ab-artifacts" { } ''
       mkdir $out
-      ${lib.concatMapStrings (n: "cp -r ${nodes.${n}.system.build.sysupdate} $out/${n}\n") [ "v2" ]}
+      ${lib.concatMapStrings (n: "cp -r ${nodes.${n}.system.build.sysupdate} $out/${n}\n") [ "v2" "v3" ]}
     '';
 in
 {
@@ -36,9 +36,13 @@ in
       ];
     };
   nodes.v2 = version 2;
+  nodes.v3 = version 3;
 
   testScript =
     { nodes, ... }:
+    let
+      sysupdate = "${nodes.v1.systemd.package}/lib/systemd/systemd-sysupdate";
+    in
     ''
       import os
       import subprocess
@@ -89,5 +93,14 @@ in
           v1.succeed("darkhttpd /mnt/v2 --port 8080 --daemon")
           v1.succeed("updatectl update")
           assert v1.succeed("lsblk -nro PARTLABEL /dev/vda") == labels
+
+      with subtest("update to v3 via local directory into slot A"):
+          v1.succeed("${sysupdate} --definitions=/etc/sysupdate-local.d --transfer-source=/mnt/v3 update")
+          v1.reboot()
+          v1.wait_for_unit("systemd-bless-boot.service")
+          v1.succeed("grep IMAGE_VERSION=3 /etc/os-release")
+          labels = v1.succeed("lsblk -nro PARTLABEL /dev/vda")
+          assert labels.count("ab_1") == 0 and labels.count("ab_3") == 2, labels
+          assert v1.succeed("ls /boot/EFI/Linux").split() == ["ab_2.efi", "ab_3.efi"]
     '';
 }
