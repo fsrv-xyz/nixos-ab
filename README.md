@@ -118,14 +118,34 @@ and the boot fails. Deleting the partition, e.g. `sfdisk --delete /dev/sda 6`,
 has the next boot create it again, empty; so does switching a device between a
 plain and an encrypted state partition.
 
+Files under `provision/` on the ESP move into `/state` on its first boot,
+keeping their paths below `provision/` with access for root only, and are then
+removed from the ESP. On a `/state` that already holds files they are only
+removed, as anyone with the disk can write to the unencrypted ESP. Until that
+first boot they lie on the disk in plain text.
+
 The SSH host key on `/state` can serve sops-nix as the device's age key. Its
 default activation script runs in the initrd, before `/state` is mounted, so
 sops-nix has to install the secrets from its unit instead
-(`sops.useSystemdActivation = true`); secrets for users (`neededForUsers`) keep
-the activation script and do not work this way. A new device has no host key
-before its first boot, and `sops-install-secrets` fails there until its
-`ssh-keyscan -t ed25519 <device> | ssh-to-age` is in `.sops.yaml`, the secrets
-are re-encrypted with `sops updatekeys` and the next build is rolled out.
+(`sops.useSystemdActivation = true`, ordered after `ab-state-provision.service`);
+secrets for users (`neededForUsers`) keep the activation script and do not work
+this way. For secrets on a device's first boot, create its host key beforehand
+and provision it:
+
+```sh
+ssh-keygen -t ed25519 -N "" -C "" -f ssh_host_ed25519_key
+ssh-to-age < ssh_host_ed25519_key.pub   # add to .sops.yaml, then: sops updatekeys secrets.yaml
+nix build .#example
+dd if=result/example.raw of=/dev/sdX bs=4M conv=fsync
+mount /dev/sdX1 /mnt
+mkdir -p /mnt/provision/ssh
+cp ssh_host_ed25519_key ssh_host_ed25519_key.pub /mnt/provision/ssh/
+umount /mnt
+```
+
+Otherwise the device creates its own key on its first boot, and
+`sops-install-secrets` fails until that key is added and the next build rolled
+out.
 
 ## Health and rollback
 
@@ -169,8 +189,9 @@ nix flake check ./tests    # on x86_64-linux with KVM
 ```
 
 One QEMU VM with a TPM boots the image via UEFI, adds the encrypted state
-partition, clears an interrupted update, updates over HTTP and from a local
-directory, leaves the running and the staged image alone, rolls back from an
-image that fails its health check and numbers the next image above the used-up
-one, keeping `/state` throughout. Two evaluation checks cover the
-`system.image.version` assertion and the `system.stateVersion` default.
+partition and moves a file provisioned on the ESP into it, clears an interrupted
+update, updates over HTTP and from a local directory, leaves the running and the
+staged image alone, rolls back from an image that fails its health check and
+numbers the next image above the used-up one, keeping `/state` throughout. Two
+evaluation checks cover the `system.image.version` assertion and the
+`system.stateVersion` default.

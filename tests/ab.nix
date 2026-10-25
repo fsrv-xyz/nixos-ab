@@ -73,10 +73,22 @@ in
       import subprocess
       import tempfile
 
+      # a copy of the image with a file to provision on its ESP
+      image = tempfile.NamedTemporaryFile()
+      subprocess.run(["cp", "--sparse=always", "${nodes.v1.system.build.release}/${nodes.v1.image.filePath}", image.name], check=True)
+      table = json.loads(subprocess.run(["${pkgs.util-linux}/bin/sfdisk", "--json", image.name], check=True, capture_output=True).stdout)["partitiontable"]
+      esp = f"{image.name}@@{table['partitions'][0]['start'] * table['sectorsize']}"
+      provisioned = tempfile.NamedTemporaryFile("w")
+      provisioned.write("provisioned\n")
+      provisioned.flush()
+      env = dict(os.environ, MTOOLS_SKIP_CHECK="1")
+      subprocess.run(["${pkgs.mtools}/bin/mmd", "-i", esp, "::provision"], check=True, env=env)
+      subprocess.run(["${pkgs.mtools}/bin/mcopy", "-i", esp, provisioned.name, "::provision/hello"], check=True, env=env)
+
       disk = tempfile.NamedTemporaryFile()
       subprocess.run([
         "${pkgs.qemu_kvm}/bin/qemu-img", "create", "-f", "qcow2",
-        "-b", "${nodes.v1.system.build.release}/${nodes.v1.image.filePath}", "-F", "raw",
+        "-b", image.name, "-F", "raw",
         disk.name, "8G",
       ], check=True)
       os.environ["NIX_DISK_IMAGE"] = disk.name
@@ -119,6 +131,15 @@ in
           assert v1.succeed("systemd-cryptenroll /dev/disk/ab-state").split()[2:] == ["0", "tpm2"]
           assert v1.succeed("findmnt --kernel --noheadings --output SOURCE,FSTYPE /state").split() == ["/dev/mapper/state", "ext4"]
           v1.succeed("echo 1 > /state/written-by")
+
+      with subtest("provisioned files reach only a new state partition"):
+          assert v1.succeed("cat /state/hello") == "provisioned\n"
+          assert v1.succeed("stat -c %a /state/hello").strip() == "600"
+          v1.fail("test -e /boot/provision")
+          v1.succeed("mkdir /boot/provision && echo late > /boot/provision/late")
+          v1.reboot()
+          v1.wait_for_unit("multi-user.target")
+          v1.fail("test -e /state/late -o -e /boot/provision")
 
       with subtest("interrupted update adds no partitions and vacuums clean"):
           serve("v2")

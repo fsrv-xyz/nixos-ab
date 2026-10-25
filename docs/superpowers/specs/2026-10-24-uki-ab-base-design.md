@@ -44,6 +44,9 @@ into the image. This repo contains no use case of its own.
   in the booted system via crypttab; no recovery keyslot (*my call*, YAGNI).
   The example decrypts sops-nix secrets with the SSH host key on `/state` (user), which
   needs `sops.useSystemdActivation`: the activation script runs in the initrd.
+  Files in `provision/` on the ESP move into a new `/state` on its first boot (user), so a
+  host key created beforehand makes secrets work on the first boot; only into an empty
+  `/state` (*my call*), since the ESP is unencrypted.
 - Primary architecture: x86_64.
 
 ## Non-goals (for now)
