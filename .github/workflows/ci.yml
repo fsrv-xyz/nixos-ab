@@ -42,7 +42,8 @@ jobs:
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
+          sudo udevadm trigger --name-match=kvm --settle
+          ls -l /dev/kvm
           test -w /dev/kvm
       # nixpkgs' image builder runs unshare --map-root-user, which Ubuntu's AppArmor default denies
       - name: Allow user namespaces
