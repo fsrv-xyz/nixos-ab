@@ -37,7 +37,8 @@ sysupdate features used here; the tests run on nixos-26.05 (systemd 260).
 | `ab.storeSizeMiB` | `2048` | size of each store slot, fixed at install; every image must fit |
 | `ab.stateSizeMiB` | `null` | size of the [state partition](#state), none if `null` |
 | `ab.stateEncryption` | `null` | `"tpm2"` or `"tang"`: encrypt the state partition |
-| `ab.stateTang` | `{ }` | clevis tang pin configuration for `"tang"` |
+| `ab.stateTang.servers` | `[ ]` | Tang servers for `"tang"`, each a clevis tang pin configuration |
+| `ab.stateTang.threshold` | `1` | how many of them have to answer |
 | `ab.update.url` | `null` | default source of `ab-update` |
 | `ab.rollback.timeout` | `"5min"` | time a counted boot has to reach `boot-complete.target` |
 
@@ -120,18 +121,19 @@ has the next boot create it again, empty; so does switching a device between a
 plain and an encrypted state partition.
 
 Without a TPM, `ab.stateEncryption = "tang"` binds the partition with clevis to
-a Tang server instead:
+Tang servers instead, through clevis' `sss` pin:
 
 ```nix
-ab.stateTang = {
-  url = "http://tang.example:7654";
-  thp = "…"; # tang-show-keys on the server; without it the first boot trusts any server
-};
+ab.stateTang.servers = [
+  # thp: tang-show-keys on the server; without it the first boot trusts any server
+  { url = "http://tang1.example:7654"; thp = "…"; }
+  { url = "http://tang2.example:7654"; thp = "…"; }
+];
 ```
 
 The first boot formats it as LUKS2 once the network is online, and every boot
-unlocks it once Tang answers. While Tang does not answer, `/state` stays locked
-and the boot fails. A partition without a clevis binding, after a first boot
+unlocks it once `ab.stateTang.threshold` of the servers answer. Until then,
+`/state` stays locked and the boot fails. A partition without a clevis binding, after a first boot
 without Tang or a switch from another variant, is formatted again.
 
 ## Health and rollback
@@ -178,7 +180,7 @@ One QEMU VM with a TPM boots the image via UEFI, adds the encrypted state
 partition, clears an interrupted update, updates over HTTP and from a local
 directory, leaves the running and the staged image alone, rolls back from an
 image that fails its health check and numbers the next image above the used-up
-one, keeping `/state` throughout. A second test binds the state partition to a
-Tang server and checks that it stays locked, and intact, while Tang is down.
-Two evaluation checks cover the `system.image.version` assertion and the
-`system.stateVersion` default.
+one, keeping `/state` throughout. A second test binds the state partition to two
+Tang servers and checks that one of them is enough, and that it stays locked,
+and intact, while both are down. Two evaluation checks cover the
+`system.image.version` assertion and the `system.stateVersion` default.
