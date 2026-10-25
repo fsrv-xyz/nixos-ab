@@ -118,6 +118,15 @@ and the boot fails. Deleting the partition, e.g. `sfdisk --delete /dev/sda 6`,
 has the next boot create it again, empty; so does switching a device between a
 plain and an encrypted state partition.
 
+The SSH host key on `/state` can serve sops-nix as the device's age key. Its
+default activation script runs in the initrd, before `/state` is mounted, so
+sops-nix has to install the secrets from its unit instead
+(`sops.useSystemdActivation = true`); secrets for users (`neededForUsers`) keep
+the activation script and do not work this way. A new device has no host key
+before its first boot, and `sops-install-secrets` fails there until its
+`ssh-keyscan -t ed25519 <device> | ssh-to-age` is in `.sops.yaml`, the secrets
+are re-encrypted with `sops updatekeys` and the next build is rolled out.
+
 ## Health and rollback
 
 A counted boot is good once `boot-complete.target` is reached: no failed
@@ -150,7 +159,8 @@ where one exists.
 
 [`examples/ssh`](examples/ssh): a minimal IPv6-only image for QEMU
 and Proxmox (networkd, SLAAC), reachable only by SSH key, with its host key on
-a TPM-encrypted `/state`. An update that brings up no routable address is not blessed and rolls back.
+a TPM-encrypted `/state`, which also decrypts its sops-nix secret
+`/run/secrets/greeting`. An update that brings up no routable address is not blessed and rolls back.
 
 ## Test
 
