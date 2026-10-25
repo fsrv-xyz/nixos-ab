@@ -1,7 +1,8 @@
 keys:
-  # ssh-to-age of the authorized key, to edit the secrets
-  - &admin age18kt4z4h45kp6nweyglzxhgrp94c4j0kmut8wt38tyauzhzjl6a8q44fu3r
-  # ssh-to-age of each device's host key, provisioned or read with ssh-keyscan
+  # the authorized SSH key itself, opened with SOPS_AGE_SSH_PRIVATE_KEY_FILE=~/.ssh/id_ed25519
+  - &admin ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFfuL39K50cLpgWCkwnkTTBxNyuL0IPSTk4mGxKAJ+GA
+  # ssh-to-age of each device's host key, provisioned or read with ssh-keyscan,
+  # the age identity sops-nix makes of it
   - &device age18ykev5284qrtetuve0vm38z94u674gkwype0cttzuzysp07wne3q0q00d3
 creation_rules:
   - path_regex: secrets\.yaml$
