@@ -42,6 +42,8 @@ into the image. This repo contains no use case of its own.
   disk systemd-boot was loaded from; mounted at `/state`, required for a healthy boot.
   `ab.stateEncryption = "tpm2"` (user) makes it LUKS2 with a key sealed to PCR 7, unlocked
   in the booted system via crypttab; no recovery keyslot (*my call*, YAGNI).
+  The example decrypts sops-nix secrets with the SSH host key on `/state` (user), which
+  needs `sops.useSystemdActivation`: the activation script runs in the initrd.
 - Primary architecture: x86_64.
 
 ## Non-goals (for now)

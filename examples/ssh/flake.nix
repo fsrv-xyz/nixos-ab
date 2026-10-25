@@ -2,15 +2,27 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
     nixos-ab.url = "path:../..";
+    sops-nix = {
+      url = "github:Mic92/sops-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
-    { nixpkgs, nixos-ab, ... }:
+    {
+      nixpkgs,
+      nixos-ab,
+      sops-nix,
+      ...
+    }:
     nixos-ab.lib.mkImages nixpkgs {
       example =
         { modulesPath, ... }:
         {
-          imports = [ (modulesPath + "/profiles/qemu-guest.nix") ];
+          imports = [
+            (modulesPath + "/profiles/qemu-guest.nix")
+            sops-nix.nixosModules.sops
+          ];
 
           nixpkgs.hostPlatform = "x86_64-linux";
 
@@ -55,6 +67,14 @@
           users.users.root.openssh.authorizedKeys.keys = [
             "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFfuL39K50cLpgWCkwnkTTBxNyuL0IPSTk4mGxKAJ+GA admin@example"
           ];
+
+          # decrypted with the SSH host key on /state into /run/secrets/greeting
+          sops = {
+            defaultSopsFile = ./secrets.yaml;
+            # the default activation script runs in the initrd, before /state is mounted
+            useSystemdActivation = true;
+            secrets.greeting = { };
+          };
         };
     };
 }
