@@ -47,6 +47,9 @@ in
           # / is tmpfs, so repart finds no disk on its own
           device = "/dev/disk/ab-boot";
         };
+        # veritysetup finds the usr partitions busy while repart works on the disk; the
+        # upstream ordering after initrd-usr-fs.target is void, NixOS' initrd lacks that target
+        boot.initrd.systemd.services.systemd-repart.after = [ "veritysetup.target" ];
         boot.initrd.supportedFilesystems.ext4 = true;
         boot.initrd.services.udev.rules = rules;
         services.udev.extraRules = rules;

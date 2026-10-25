@@ -117,7 +117,7 @@ in
           assert slot("state") == STATE_MIB
           assert v1.succeed("blkid -o value -s TYPE /dev/disk/ab-state").strip() == "crypto_LUKS"
           assert v1.succeed("systemd-cryptenroll /dev/disk/ab-state").split()[2:] == ["0", "tpm2"]
-          v1.succeed("findmnt --kernel --types ext4 --source /dev/mapper/state /state")
+          assert v1.succeed("findmnt --kernel --noheadings --output SOURCE,FSTYPE /state").split() == ["/dev/mapper/state", "ext4"]
           v1.succeed("echo 1 > /state/written-by")
 
       with subtest("interrupted update adds no partitions and vacuums clean"):
