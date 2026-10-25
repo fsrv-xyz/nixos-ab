@@ -1,8 +1,8 @@
 keys:
   # ssh-to-age of the authorized key, to edit the secrets
   - &admin age18kt4z4h45kp6nweyglzxhgrp94c4j0kmut8wt38tyauzhzjl6a8q44fu3r
-  # ssh-keyscan -t ed25519 <device> | ssh-to-age, for each device that decrypts them
-  - &device age1y8g05e2sya9zzq2qaelxyh3julf3a3k098749vhljp0ld46cpdms73l8md
+  # ssh-to-age of each device's host key, provisioned or read with ssh-keyscan
+  - &device age18ykev5284qrtetuve0vm38z94u674gkwype0cttzuzysp07wne3q0q00d3
 creation_rules:
   - path_regex: secrets\.yaml$
     key_groups:
