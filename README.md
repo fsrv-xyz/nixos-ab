@@ -36,6 +36,7 @@ sysupdate features used here; the tests run on nixos-26.05 (systemd 260).
 |---|---|---|
 | `ab.storeSizeMiB` | `2048` | size of each store slot, fixed at install; every image must fit |
 | `ab.stateSizeMiB` | `null` | size of the [state partition](#state), none if `null` |
+| `ab.stateEncryption` | `null` | `"tpm2"`: encrypt the state partition with a key sealed to the TPM |
 | `ab.update.url` | `null` | default source of `ab-update` |
 | `ab.rollback.timeout` | `"5min"` | time a counted boot has to reach `boot-complete.target` |
 
@@ -100,12 +101,22 @@ refuses to retry until it is cleared: run `ab-update vacuum` first.
 
 `/` is tmpfs. An image that sets `ab.stateSizeMiB` gets a partition of that
 size, mounted at `/state`: on its first boot, systemd-repart in the initrd adds
-it behind slot B on the disk systemd-boot was loaded from, and it is formatted
-ext4 on first mount. Updates and rollbacks leave it alone; writing the raw
-image again wipes it. A boot without it fails the health check, so a disk
+it behind slot B on the disk systemd-boot was loaded from and formats it ext4.
+Updates and rollbacks leave it alone; writing the raw image again wipes it. A boot without it fails the health check, so a disk
 without room for it, such as a VM disk the size of the image, needs to grow
 first. What lives there is up to the image: [`examples/ssh`](examples/ssh)
 keeps its SSH host key there.
+
+With `ab.stateEncryption = "tpm2"`, repart creates the partition as LUKS2 with
+its key sealed to PCR 7 of the machine's TPM 2.0, so it unlocks without a
+password on this machine only. A Proxmox VM gets a TPM with
+`qm set <vmid> --tpmstate0 <storage>:1,version=v2.0`. With Secure Boot off this
+protects the data on a disk taken out of the machine, not against another
+system booted on it. There is no recovery key: once the TPM is cleared or PCR 7
+changes (Secure Boot keys, some firmware updates), `/state` no longer unlocks
+and the boot fails. Deleting the partition, e.g. `sfdisk --delete /dev/sda 6`,
+has the next boot create it again, empty; so does switching a device between a
+plain and an encrypted state partition.
 
 ## Health and rollback
 
@@ -133,13 +144,13 @@ where one exists.
 ## Not included
 
 - Secure Boot and signing of UKIs or `SHA256SUMS`; HTTP transfers use `Verify=no`.
-- Encryption of the state partition, persisted machine-id and logs.
+- Encryption of the state partition without a TPM, recovery keys, persisted machine-id and logs.
 
 ## Examples
 
 [`examples/ssh`](examples/ssh): a minimal IPv6-only image for QEMU
 and Proxmox (networkd, SLAAC), reachable only by SSH key, with its host key on
-`/state`. An update that brings up no routable address is not blessed and rolls back.
+a TPM-encrypted `/state`. An update that brings up no routable address is not blessed and rolls back.
 
 ## Test
 
@@ -147,9 +158,9 @@ and Proxmox (networkd, SLAAC), reachable only by SSH key, with its host key on
 nix flake check ./tests    # on x86_64-linux with KVM
 ```
 
-One QEMU VM boots the image via UEFI, adds the state partition, clears an
-interrupted update, updates over HTTP and from a local directory, leaves the
-running and the staged image alone, rolls back from an image that fails its
-health check and numbers the next image above the used-up one, keeping `/state`
-throughout. Two evaluation checks cover the `system.image.version` assertion
-and the `system.stateVersion` default.
+One QEMU VM with a TPM boots the image via UEFI, adds the encrypted state
+partition, clears an interrupted update, updates over HTTP and from a local
+directory, leaves the running and the staged image alone, rolls back from an
+image that fails its health check and numbers the next image above the used-up
+one, keeping `/state` throughout. Two evaluation checks cover the
+`system.image.version` assertion and the `system.stateVersion` default.

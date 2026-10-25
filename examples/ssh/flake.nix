@@ -34,6 +34,7 @@
           };
 
           ab.stateSizeMiB = 64;
+          ab.stateEncryption = "tpm2";
 
           services.openssh = {
             enable = true;
