@@ -21,6 +21,7 @@ in
     system.image.id = "ab";
     ab.storeSizeMiB = 2048;
     ab.stateSizeMiB = 64;
+    ab.stateEncryption = "tpm2";
     ab.update.url = "http://127.0.0.1:8080/";
     ab.rollback.timeout = "30s";
     environment.systemPackages = [ pkgs.darkhttpd ];
@@ -29,6 +30,7 @@ in
       directBoot.enable = false;
       mountHostNixStore = false;
       useEFIBoot = true;
+      tpm.enable = true;
       fileSystems = lib.mkVMOverride { };
     };
   };
@@ -113,7 +115,9 @@ in
 
       with subtest("first boot adds the state partition"):
           assert slot("state") == STATE_MIB
-          v1.succeed("findmnt --kernel --types ext4 /state")
+          assert v1.succeed("blkid -o value -s TYPE /dev/disk/ab-state").strip() == "crypto_LUKS"
+          assert v1.succeed("systemd-cryptenroll /dev/disk/ab-state").split()[2:] == ["0", "tpm2"]
+          v1.succeed("findmnt --kernel --types ext4 --source /dev/mapper/state /state")
           v1.succeed("echo 1 > /state/written-by")
 
       with subtest("interrupted update adds no partitions and vacuums clean"):

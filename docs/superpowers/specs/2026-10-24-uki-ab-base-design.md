@@ -40,13 +40,15 @@ into the image. This repo contains no use case of its own.
 - Optional state partition (user): `ab.stateSizeMiB` makes
   repart in the initrd add an ext4 partition of its own GPT type behind slot B on the
   disk systemd-boot was loaded from; mounted at `/state`, required for a healthy boot.
+  `ab.stateEncryption = "tpm2"` (user) makes it LUKS2 with a key sealed to PCR 7, unlocked
+  in the booted system via crypttab; no recovery keyslot (*my call*, YAGNI).
 - Primary architecture: x86_64.
 
 ## Non-goals (for now)
 
 - Secure Boot, UKI signing, signed `SHA256SUMS` (user: later).
 - Persistent data by default, a var partition, persisted machine-id or logs, encryption
-  of the state partition.
+  of the state partition without a TPM.
 - aarch64 builds and tests (don't block them gratuitously, don't test them).
 - Installer flow (USB boot that installs to internal disk). Install = `dd` raw image,
   which holds both slots.
