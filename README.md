@@ -35,12 +35,13 @@ sysupdate features used here; the tests run on nixos-26.05 (systemd 260).
 | Option | Default | |
 |---|---|---|
 | `ab.storeSizeMiB` | `2048` | size of each store slot, fixed at install; every image must fit |
+| `ab.stateSizeMiB` | `null` | size of the [state partition](#state), none if `null` |
 | `ab.update.url` | `null` | default source of `ab-update` |
 | `ab.rollback.timeout` | `"5min"` | time a counted boot has to reach `boot-complete.target` |
 
 Leave `system.image.version` unset: `ab-update` numbers the images on the device.
-`system.stateVersion` follows the release you build with, as nothing survives a
-reboot; set it yourself once a device keeps data on a partition of its own.
+`system.stateVersion` follows the release you build with, as `/` does not survive a
+reboot; set it yourself once a service keeps its data on `/state`.
 
 ## Install
 
@@ -51,8 +52,8 @@ dd if=result/router.raw of=/dev/sdX bs=4M conv=fsync
 
 `result` holds the disk image and `update/`, the artifacts that roll this
 build out to installed devices. The image holds the ESP, slot A and an
-empty slot B, so the disk must be at least as large as the image. Nothing
-repartitions the disk at runtime.
+empty slot B, so the disk must be at least as large as the image, plus the
+state partition if the image has one.
 
 The machine boots it via UEFI with Secure Boot off. Its disk driver must be in
 the initrd: NixOS adds none for virtio, so a QEMU or Proxmox guest imports
@@ -95,6 +96,17 @@ on its own.
 An interrupted update leaves the inactive slot half-written, and sysupdate
 refuses to retry until it is cleared: run `ab-update vacuum` first.
 
+## State
+
+`/` is tmpfs. An image that sets `ab.stateSizeMiB` gets a partition of that
+size, mounted at `/state`: on its first boot, systemd-repart in the initrd adds
+it behind slot B on the disk systemd-boot was loaded from, and it is formatted
+ext4 on first mount. Updates and rollbacks leave it alone; writing the raw
+image again wipes it. A boot without it fails the health check, so a disk
+without room for it, such as a VM disk the size of the image, needs to grow
+first. What lives there is up to the image: [`examples/ssh`](examples/ssh)
+keeps its SSH host key there.
+
 ## Health and rollback
 
 A counted boot is good once `boot-complete.target` is reached: no failed
@@ -121,13 +133,13 @@ where one exists.
 ## Not included
 
 - Secure Boot and signing of UKIs or `SHA256SUMS`; HTTP transfers use `Verify=no`.
-- Persistent state: `/` is tmpfs, only the ESP and the store slots survive a reboot.
+- Encryption of the state partition, persisted machine-id and logs.
 
 ## Examples
 
 [`examples/ssh`](examples/ssh): a minimal IPv6-only image for QEMU
-and Proxmox (networkd, SLAAC), reachable only by SSH key. An update that brings
-up no routable address is not blessed and rolls back.
+and Proxmox (networkd, SLAAC), reachable only by SSH key, with its host key on
+`/state`. An update that brings up no routable address is not blessed and rolls back.
 
 ## Test
 
@@ -135,8 +147,9 @@ up no routable address is not blessed and rolls back.
 nix flake check ./tests    # on x86_64-linux with KVM
 ```
 
-One QEMU VM boots the image via UEFI, clears an interrupted update, updates
-over HTTP and from a local directory, leaves the running and the staged image
-alone, rolls back from an image that fails its health check and numbers the
-next image above the used-up one. Two evaluation checks cover the
-`system.image.version` assertion and the `system.stateVersion` default.
+One QEMU VM boots the image via UEFI, adds the state partition, clears an
+interrupted update, updates over HTTP and from a local directory, leaves the
+running and the staged image alone, rolls back from an image that fails its
+health check and numbers the next image above the used-up one, keeping `/state`
+throughout. Two evaluation checks cover the `system.image.version` assertion
+and the `system.stateVersion` default.
