@@ -26,6 +26,10 @@
           imports = [ ./ab.nix ];
           defaults.imports = [ nixos-ab.nixosModules.default ];
         };
+        tang = pkgs.testers.runNixOSTest {
+          imports = [ ./tang.nix ];
+          nodes.machine.imports = [ nixos-ab.nixosModules.default ];
+        };
         image-version =
           assert rejects "1" && !rejects null;
           pkgs.emptyFile;

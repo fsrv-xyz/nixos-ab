@@ -18,21 +18,14 @@ in
   globalTimeout = 900;
 
   defaults = {
-    system.image.id = "ab";
+    imports = [ ./image.nix ];
     ab.storeSizeMiB = 2048;
     ab.stateSizeMiB = 64;
     ab.stateEncryption = "tpm2";
     ab.update.url = "http://127.0.0.1:8080/";
     ab.rollback.timeout = "30s";
     environment.systemPackages = [ pkgs.darkhttpd ];
-    virtualisation = {
-      memorySize = 1024;
-      directBoot.enable = false;
-      mountHostNixStore = false;
-      useEFIBoot = true;
-      tpm.enable = true;
-      fileSystems = lib.mkVMOverride { };
-    };
+    virtualisation.tpm.enable = true;
   };
 
   nodes.v1 =
