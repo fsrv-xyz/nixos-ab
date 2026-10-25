@@ -134,7 +134,8 @@ and provision it:
 
 ```sh
 ssh-keygen -t ed25519 -N "" -C "" -f ssh_host_ed25519_key
-ssh-to-age < ssh_host_ed25519_key.pub   # add to .sops.yaml, then: sops updatekeys secrets.yaml
+ssh-to-age < ssh_host_ed25519_key.pub   # add to .sops.yaml as the device's recipient
+SOPS_AGE_SSH_PRIVATE_KEY_FILE=~/.ssh/id_ed25519 sops updatekeys secrets.yaml
 nix build .#example
 dd if=result/example.raw of=/dev/sdX bs=4M conv=fsync
 mount /dev/sdX1 /mnt
