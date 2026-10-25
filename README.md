@@ -193,6 +193,7 @@ One QEMU VM with a TPM boots the image via UEFI, adds the encrypted state
 partition and moves a file provisioned on the ESP into it, clears an interrupted
 update, updates over HTTP and from a local directory, leaves the running and the
 staged image alone, rolls back from an image that fails its health check and
-numbers the next image above the used-up one, keeping `/state` throughout. Two
-evaluation checks cover the `system.image.version` assertion and the
-`system.stateVersion` default.
+numbers the next image above the used-up one, keeping `/state` throughout. A
+second VM provisions a file into a plain state partition. Two evaluation checks
+cover the `system.image.version` assertion and the `system.stateVersion`
+default.

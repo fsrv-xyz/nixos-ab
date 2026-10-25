@@ -30,6 +30,10 @@ jobs:
   vm-test:
     needs: lint
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [ab, state-plain]
     steps:
       # four test images with their intermediate images and update artifacts outgrow the free disk
       - name: Free disk space
@@ -49,4 +53,4 @@ jobs:
         with:
           extra_nix_config: system-features = nixos-test benchmark big-parallel kvm
       - name: VM test
-        run: nix build ./tests#checks.x86_64-linux.ab -L
+        run: nix build ./tests#checks.x86_64-linux.${{ matrix.check }} -L
