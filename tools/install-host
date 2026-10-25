@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# install-host [--reboot] <name> <ssh target> <disk> [release]: writes the image of a release
+# (default ./result) to a disk of a rescue system and puts the host key from hosts/<name>/ into
+# provision/ on its ESP
+set -euo pipefail
+fail() {
+  echo "install-host: $*" >&2
+  exit 1
+}
+reboot=
+if [[ ${1-} == --reboot ]]; then
+  reboot=1
+  shift
+fi
+if (($# < 3 || $# > 4)); then
+  echo "usage: install-host [--reboot] name ssh-target disk [release]" >&2
+  exit 2
+fi
+name=$1 target=$2 disk=$3 image=${4:-result}/$1.raw
+[[ -e $image ]] || fail "$image missing: nix build .#$name"
+[[ $disk =~ ^/dev/[[:alnum:]/_.-]+$ ]] || fail "$disk: not a device path"
+pub=$(<"hosts/$name/ssh_host_ed25519_key.pub")
+key=$(sops decrypt --extract '["ssh_host_ed25519_key"]' "hosts/$name/host-key.yaml")
+size=$(stat -L -c %s "$image")
+
+on() { ssh -n "$target" "$@"; }
+on command -v zstd >/dev/null || fail "$target: zstd missing"
+on lsblk -o NAME,SIZE,MODEL,MOUNTPOINT "$disk"
+[[ ! $(on lsblk -no MOUNTPOINT "$disk") =~ [^[:space:]] ]] || fail "$disk is in use"
+(($(on blockdev --getsize64 "$disk") >= size)) || fail "$disk is smaller than the image ($size bytes)"
+read -r -p "erase $disk on $target for $name? type $name: " answer
+[[ $answer == "$name" ]] || fail "not confirmed"
+
+sum=$(sha256sum < "$image")
+# on stdin: zstd skips a symlink given as a file, and result/ holds one
+zstd -q -c -T0 < "$image" | ssh "$target" "zstd -dq | dd of=$disk bs=4M conv=fsync status=progress" ||
+  fail "writing $disk failed"
+# flushbufs drops the page cache, so the sum is read from the disk
+[[ $(on "blockdev --flushbufs $disk && head -c $size $disk | sha256sum") == "$sum" ]] ||
+  fail "$disk does not hold the image"
+printf '%s\n' "$key" | ssh "$target" "set -e
+blockdev --rereadpt $disk
+mnt=\$(mktemp -d)
+mount \$(lsblk -lnpo NAME $disk | sed -n 2p) \$mnt
+mkdir -p \$mnt/provision/ssh
+cat > \$mnt/provision/ssh/ssh_host_ed25519_key
+echo '$pub' > \$mnt/provision/ssh/ssh_host_ed25519_key.pub
+umount \$mnt
+rmdir \$mnt"
+echo "install-host: $name is on $disk, host key $(ssh-keygen -lf "hosts/$name/ssh_host_ed25519_key.pub" | cut -d' ' -f2)"
+[[ -n $reboot ]] || exit 0
+
+echo "install-host: rebooting $target, waiting for $name's host key"
+on reboot || :
+known=$(mktemp)
+trap 'rm -f "$known"' EXIT
+echo "$name $pub" > "$known"
+deadline=$((SECONDS + 900))
+while :; do
+  status=0
+  state=$(ssh -n -o HostKeyAlias="$name" -o UserKnownHostsFile="$known" -o GlobalKnownHostsFile=/dev/null \
+    -o StrictHostKeyChecking=yes -o ConnectTimeout=5 "$target" systemctl is-system-running --wait 2>/dev/null) ||
+    status=$?
+  # 255: no connection yet, or still the rescue system's host key
+  ((status == 255 && SECONDS < deadline)) || break
+  sleep 5
+done
+((status == 0)) || fail "$target: ${state:-no answer with the host key of $name}"
+echo "install-host: $name is $state"

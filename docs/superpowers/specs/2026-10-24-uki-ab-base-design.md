@@ -56,6 +56,9 @@ into the image. This repo contains no use case of its own.
   tmpfs overlay over `/nix/store`, since `/etc` is writable already and its files link
   into the store. A shell script (user) that shows a diff of the changes (*my call*); gone
   with the next reboot (user).
+- `install-host` (user): the first install of such a host over SSH into a rescue system: it
+  writes the image, verifies it on the disk, provisions the host key and, on request,
+  reboots and checks the host by its key. A local disk is left to `dd`.
 - Primary architecture: x86_64.
 
 ## Non-goals (for now)

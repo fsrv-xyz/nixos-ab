@@ -18,7 +18,7 @@ jobs:
       - name: deadnix
         run: nix run --inputs-from ./tests nixpkgs#deadnix -- --fail .
       - name: shellcheck
-        run: nix run --inputs-from ./tests nixpkgs#shellcheck -- -S warning tools/new-host modules/ab-overlay.sh
+        run: nix run --inputs-from ./tests nixpkgs#shellcheck -- -S warning tools/new-host tools/install-host modules/ab-overlay.sh
       - name: Go
         working-directory: ab-update
         shell: nix shell --inputs-from ../tests nixpkgs#go --command bash -e {0}
@@ -37,7 +37,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        check: [ab, state-plain]
+        check: [ab, state-plain, install-host]
     steps:
       # four test images with their intermediate images and update artifacts outgrow the free disk
       - name: Free disk space

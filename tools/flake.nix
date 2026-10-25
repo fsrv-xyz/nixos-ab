@@ -6,8 +6,19 @@
     {
       packages =
         nixpkgs.lib.genAttrs [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" "x86_64-darwin" ]
-          (system: {
-            new-host = nixpkgs.legacyPackages.${system}.callPackage ./package.nix { };
-          });
+          (
+            system:
+            let
+              tools = nixpkgs.legacyPackages.${system}.callPackage ./package.nix { };
+            in
+            {
+              new-host = tools;
+              install-host = tools // {
+                meta = tools.meta // {
+                  mainProgram = "install-host";
+                };
+              };
+            }
+          );
     };
 }
