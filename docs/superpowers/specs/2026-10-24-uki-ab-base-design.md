@@ -34,15 +34,19 @@ into the image. This repo contains no use case of its own.
     (*my call*, effective only where a watchdog device exists).
 - Updates are **only triggered manually** (user): no timer, sysupdate runs only under
   `ab-update`. The reboot into the new image is manual too (*my call*).
-- The image ships slot B empty; nothing repartitions at runtime (user, after the final
-  review: a runtime repart sees a half-written B after an interrupted update as foreign
-  and adds another slot).
+- The image ships slot B empty, and no runtime repart knows the slots (user, after the
+  final review: a runtime repart sees a half-written B after an interrupted update as
+  foreign and adds another slot).
+- Optional state partition (user): `ab.stateSizeMiB` makes
+  repart in the initrd add an ext4 partition of its own GPT type behind slot B on the
+  disk systemd-boot was loaded from; mounted at `/state`, required for a healthy boot.
 - Primary architecture: x86_64.
 
 ## Non-goals (for now)
 
 - Secure Boot, UKI signing, signed `SHA256SUMS` (user: later).
-- Any persistent data: no state/var partition, no persisted machine-id, logs, keys.
+- Persistent data by default, a var partition, persisted machine-id or logs, encryption
+  of the state partition.
 - aarch64 builds and tests (don't block them gratuitously, don't test them).
 - Installer flow (USB boot that installs to internal disk). Install = `dd` raw image,
   which holds both slots.
@@ -80,7 +84,7 @@ into the image. This repo contains no use case of its own.
 |---|---|---|
 | Form | Flake + NixOS module; consumer owns `nixosSystem` | my call, user ok |
 | Store | erofs + dm-verity via nixpkgs `image.repart.verityStore` | my call, user ok |
-| Root | `/` tmpfs, nothing persisted | user |
+| Root | `/` tmpfs; optional `/state` partition, created at first boot | user |
 | Update sources | HTTP pull **and** local directory | user |
 | Initial install | raw image with slot A and an empty slot B | user (replaced "B by repart at first boot") |
 | Signing / Secure Boot | out of scope; `Verify=no` for HTTP until then | user |

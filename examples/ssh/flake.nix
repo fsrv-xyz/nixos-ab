@@ -33,15 +33,24 @@
             before = [ "boot-complete.target" ];
           };
 
-          # / is tmpfs: the host keys are regenerated on every boot
+          ab.stateSizeMiB = 64;
+
           services.openssh = {
             enable = true;
+            hostKeys = [
+              {
+                type = "ed25519";
+                path = "/state/ssh/ssh_host_ed25519_key";
+              }
+            ];
             settings = {
               PasswordAuthentication = false;
               KbdInteractiveAuthentication = false;
               PermitRootLogin = "prohibit-password";
             };
           };
+          # without it a missing /state lets keygen write to the tmpfs mount point
+          systemd.services.sshd-keygen.unitConfig.RequiresMountsFor = [ "/state" ];
           users.users.root.openssh.authorizedKeys.keys = [
             "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFfuL39K50cLpgWCkwnkTTBxNyuL0IPSTk4mGxKAJ+GA admin@example"
           ];

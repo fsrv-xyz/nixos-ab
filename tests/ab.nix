@@ -20,6 +20,7 @@ in
   defaults = {
     system.image.id = "ab";
     ab.storeSizeMiB = 2048;
+    ab.stateSizeMiB = 64;
     ab.update.url = "http://127.0.0.1:8080/";
     ab.rollback.timeout = "30s";
     environment.systemPackages = [ pkgs.darkhttpd ];
@@ -79,6 +80,7 @@ in
       os.environ["NIX_DISK_IMAGE"] = disk.name
 
       SLOT_MIB = [32, 2048]
+      STATE_MIB = [64]
 
       # not lsblk: its udev-sourced labels miss sysupdate's relabels
       def partitions():
@@ -109,6 +111,11 @@ in
       with subtest("image ships empty B slot"):
           assert slot("_empty") == SLOT_MIB
 
+      with subtest("first boot adds the state partition"):
+          assert slot("state") == STATE_MIB
+          v1.succeed("findmnt --kernel --types ext4 /state")
+          v1.succeed("echo 1 > /state/written-by")
+
       with subtest("interrupted update adds no partitions and vacuums clean"):
           serve("v2")
           before = partitions()
@@ -129,6 +136,7 @@ in
           v1.reboot()
           v1.wait_for_unit("systemd-bless-boot.service")
           assert build() == "2"
+          v1.succeed("grep -x 1 /state/written-by")
           v1.succeed("test -f /boot/EFI/Linux/ab_2.efi")
           assert slot("ab_1") == slot("ab_2") == SLOT_MIB
 
@@ -160,6 +168,8 @@ in
               v1.connected = False
           v1.wait_for_unit("multi-user.target")
           assert build() == "3"
+          v1.succeed("grep -x 1 /state/written-by")
+          assert slot("state") == STATE_MIB
           v1.succeed("test -f /boot/EFI/Linux/ab_4+0-3.efi")
           entries = json.loads(v1.succeed("bootctl list --json=short"))
           uki = [e for e in entries if e["type"] == "type2"]
