@@ -43,8 +43,10 @@ into the image. This repo contains no use case of its own.
   `ab.stateEncryption = "tpm2"` (user) makes it LUKS2 with a key sealed to PCR 7, unlocked
   in the booted system via crypttab; no recovery keyslot (*my call*, YAGNI).
   `"tang"` (user, for machines without a TPM): repart leaves the partition raw, a unit in
-  the booted system formats it as LUKS2 behind clevis' tang pin on first use and unlocks
-  it with `clevis luks unlock` on every boot, after network-online.target.
+  the booted system formats it as LUKS2 behind clevis' sss pin over a list of Tang
+  servers with a threshold (user) on first use and unlocks it with `clevis luks unlock`
+  on every boot, after network-online.target. TPM stays with systemd (user, after
+  weighing clevis' tpm2 pin: raw PCR values only, no signed policies).
 - Primary architecture: x86_64.
 
 ## Non-goals (for now)

@@ -10,6 +10,11 @@ let
   tpm2 = stateEncryption == "tpm2";
   tang = stateEncryption == "tang";
   stateDevice = "${utils.escapeSystemdPath "/dev/disk/ab-state"}.device";
+  # sss with a single server behaves like the plain tang pin
+  sss = builtins.toJSON {
+    t = stateTang.threshold;
+    pins.tang = stateTang.servers;
+  };
   # a type of its own: repart assigns existing partitions to definitions by type
   stateType = "17ea15ae-a3ca-484a-b555-4686f3574774";
   # only on the disk systemd-boot was loaded from, so another disk carrying the image never stands in
@@ -40,21 +45,30 @@ in
       description = ''
         Encryption of the state partition when it is created. `tpm2` seals its LUKS2 key to PCR 7 of
         the machine's TPM, so it unlocks without a password, and only on this machine. `tang` binds
-        it with clevis to the Tang server in `ab.stateTang`, so it unlocks without a TPM once the
-        network is up, and only where that server answers.
+        it with clevis to the Tang servers in `ab.stateTang`, so it unlocks without a TPM once the
+        network is up, and only where enough of them answer.
       '';
     };
-    stateTang = lib.mkOption {
-      type = lib.types.attrsOf lib.types.str;
-      default = { };
-      example = {
-        url = "http://tang.example:7654";
-        thp = "dmTYXFk4tOGZvXmp9xbZaWPu0lOGBzT3I9sm1l6Eq_8";
+    stateTang = {
+      servers = lib.mkOption {
+        type = lib.types.listOf (lib.types.attrsOf lib.types.str);
+        default = [ ];
+        example = [
+          {
+            url = "http://tang.example:7654";
+            thp = "dmTYXFk4tOGZvXmp9xbZaWPu0lOGBzT3I9sm1l6Eq_8";
+          }
+        ];
+        description = ''
+          Tang servers for `ab.stateEncryption = "tang"`, each a configuration of clevis' tang pin.
+          Without `thp`, the first boot trusts whichever server answers at `url`.
+        '';
       };
-      description = ''
-        Configuration of clevis' tang pin for `ab.stateEncryption = "tang"`. Without `thp`, the first
-        boot trusts whichever server answers at `url`.
-      '';
+      threshold = lib.mkOption {
+        type = lib.types.ints.positive;
+        default = 1;
+        description = "How many of `ab.stateTang.servers` have to answer to unlock the state partition.";
+      };
     };
   };
 
@@ -103,8 +117,12 @@ in
       (lib.mkIf tang {
         assertions = [
           {
-            assertion = stateTang ? url;
-            message = "ab: ab.stateEncryption = \"tang\" needs ab.stateTang.url.";
+            assertion = stateTang.servers != [ ] && lib.all (server: server ? url) stateTang.servers;
+            message = "ab: ab.stateEncryption = \"tang\" needs ab.stateTang.servers, each with a url.";
+          }
+          {
+            assertion = stateTang.threshold <= lib.length stateTang.servers;
+            message = "ab: ab.stateTang.threshold exceeds the number of ab.stateTang.servers.";
           }
         ];
 
@@ -152,7 +170,7 @@ in
               key=$(mktemp)
               head -c 64 /dev/urandom > "$key"
               cryptsetup luksFormat --batch-mode --key-file "$key" "$dev"
-              clevis luks bind -y -k "$key" -d "$dev" tang ${lib.escapeShellArg (builtins.toJSON stateTang)}
+              clevis luks bind -y -k "$key" -d "$dev" sss ${lib.escapeShellArg sss}
               cryptsetup luksRemoveKey --batch-mode "$dev" "$key"
               rm "$key"
             fi
