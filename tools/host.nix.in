@@ -1,0 +1,53 @@
+{
+  nixpkgs.hostPlatform = "x86_64-linux";
+
+  networking = {
+    hostName = "@name@";
+    useNetworkd = true;
+    useDHCP = false;
+    tempAddresses = "disabled";
+  };
+  systemd.network.networks."10-ether" = {
+    matchConfig.Type = "ether";
+    networkConfig.IPv6AcceptRA = true;
+    ipv6AcceptRAConfig.Token = "eui64";
+    linkConfig.RequiredForOnline = "routable";
+  };
+  # an image that brings up no routable address is not blessed and rolls back
+  systemd.services.systemd-networkd-wait-online = {
+    requiredBy = [ "boot-complete.target" ];
+    before = [ "boot-complete.target" ];
+  };
+
+  ab.stateSizeMiB = 64;
+  # with a TPM 2.0: ab.stateEncryption = "tpm2";
+
+  services.openssh = {
+    enable = true;
+    hostKeys = [
+      {
+        type = "ed25519";
+        path = "/state/ssh/ssh_host_ed25519_key";
+      }
+    ];
+    settings = {
+      PasswordAuthentication = false;
+      KbdInteractiveAuthentication = false;
+      PermitRootLogin = "prohibit-password";
+    };
+  };
+  # without it a missing /state lets keygen write to the tmpfs mount point
+  systemd.services.sshd-keygen.unitConfig.RequiresMountsFor = [ "/state" ];
+  users.users.root.openssh.authorizedKeys.keys = [
+@keys@
+  ];
+
+  # decrypted with the host key, which host-key.yaml holds for provision/ssh/ on the ESP
+  sops = {
+    defaultSopsFile = ./secrets.yaml;
+    # the default activation script runs in the initrd, before /state is mounted
+    useSystemdActivation = true;
+    secrets.example = { };
+  };
+  systemd.services.sops-install-secrets.after = [ "ab-state-provision.service" ];
+}
