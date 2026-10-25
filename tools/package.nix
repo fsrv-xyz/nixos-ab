@@ -8,26 +8,30 @@
   sops,
   ssh-to-age,
   yq-go,
+  zstd,
 }:
 stdenvNoCC.mkDerivation {
-  pname = "new-host";
+  pname = "nixos-ab-tools";
   version = "0";
   src = ./.;
   nativeBuildInputs = [ makeWrapper ];
-  # the script finds host.nix.in next to itself
+  # new-host finds host.nix.in next to itself
   installPhase = ''
-    install -D -t $out/share/new-host new-host
-    install -D -m 644 -t $out/share/new-host host.nix.in
-    makeWrapper $out/share/new-host/new-host $out/bin/new-host --set PATH ${
-      lib.makeBinPath [
-        coreutils
-        gnused
-        openssh
-        sops
-        ssh-to-age
-        yq-go
-      ]
-    }
+    install -D -m 644 -t $out/share/nixos-ab host.nix.in
+    for program in new-host install-host; do
+      install -D -t $out/share/nixos-ab $program
+      makeWrapper $out/share/nixos-ab/$program $out/bin/$program --set PATH ${
+        lib.makeBinPath [
+          coreutils
+          gnused
+          openssh
+          sops
+          ssh-to-age
+          yq-go
+          zstd
+        ]
+      }
+    done
   '';
   meta.mainProgram = "new-host";
 }

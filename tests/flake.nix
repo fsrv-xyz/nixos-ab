@@ -16,6 +16,7 @@
             nixpkgs.hostPlatform = "x86_64-linux";
           };
         }).nixosConfigurations.ab;
+      tools = pkgs.callPackage "${nixos-ab}/tools/package.nix" { };
       rejects =
         version:
         builtins.any (a: !a.assertion) (image { system.image.version = version; }).config.assertions;
@@ -30,9 +31,12 @@
           imports = [ ./state-plain.nix ];
           defaults.imports = [ nixos-ab.nixosModules.default ];
         };
-        new-host = pkgs.callPackage ./new-host.nix {
-          new-host = pkgs.callPackage "${nixos-ab}/tools/package.nix" { };
+        install-host = pkgs.testers.runNixOSTest {
+          imports = [ ./install-host.nix ];
+          nodes.client.environment.systemPackages = [ tools ];
+          nodes.device.imports = [ nixos-ab.nixosModules.default ];
         };
+        new-host = pkgs.callPackage ./new-host.nix { new-host = tools; };
         hosts =
           let
             images = nixos-ab.lib.mkImages nixpkgs (

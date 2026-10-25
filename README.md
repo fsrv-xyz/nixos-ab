@@ -77,6 +77,19 @@ build out to installed devices. The image holds the ESP, slot A and an
 empty slot B, so the disk must be at least as large as the image, plus the
 state partition if the image has one.
 
+For a host made by `new-host`, `install-host` does this over SSH, from the
+repository, on a machine running a rescue or live system with `zstd`:
+
+```sh
+nix build .#wyse3040
+nix run 'github:fsrv-xyz/nixos-ab?dir=tools#install-host' -- --reboot wyse3040 root@rescue /dev/mmcblk0
+```
+
+It shows the disk and asks for the host's name, streams the image compressed,
+compares its sha256 on the disk and puts the host key into `provision/ssh/` on
+the ESP. With `--reboot` it reboots the machine and waits, at the same address,
+for the host's own key and `systemctl is-system-running`.
+
 The machine boots it via UEFI with Secure Boot off. Its disk driver must be in
 the initrd: NixOS adds none for virtio, so a QEMU or Proxmox guest imports
 `profiles/qemu-guest.nix`, as the example does.
@@ -236,6 +249,7 @@ staged image alone, rolls back from an image that fails its health check and
 numbers the next image above the used-up one, keeping `/state` throughout;
 `ab-overlay` changes and deletes store files until a reboot. A
 second VM provisions a file into a plain state partition. `new-host` runs with
-throwaway keys and checks who can decrypt what. Evaluation checks cover the
+throwaway keys and checks who can decrypt what. `install-host` writes a host to
+the disk of a rescue VM, which then boots it as the host. Evaluation checks cover the
 `system.image.version` assertion, the `system.stateVersion` default and
 `lib.hosts`.
