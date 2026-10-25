@@ -47,6 +47,11 @@ into the image. This repo contains no use case of its own.
   Files in `provision/` on the ESP move into a new `/state` on its first boot (user), so a
   host key created beforehand makes secrets work on the first boot; only into an empty
   `/state` (*my call*), since the ESP is unencrypted.
+- `new-host` (user): a shell script in the sub-flake `tools/`, so the root flake stays
+  without inputs. It scaffolds `hosts/<name>/` (base config, `secrets.yaml` for admins and
+  host, `host-key.yaml` with the private host key for admins only) and adds the host to
+  `.sops.yaml` last. ssh-keygen, sops, ssh-to-age and yq-go do the work, so the script stays
+  at about 50 lines. `lib.hosts` reads the directories.
 - Primary architecture: x86_64.
 
 ## Non-goals (for now)

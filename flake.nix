@@ -4,6 +4,20 @@
     {
       nixosModules.default = ./modules;
 
+      lib.hosts =
+        dir: modules:
+        let
+          names = builtins.filter (name: builtins.pathExists (dir + "/${name}/default.nix")) (
+            builtins.attrNames (builtins.readDir dir)
+          );
+        in
+        builtins.listToAttrs (
+          map (name: {
+            inherit name;
+            value.imports = [ (dir + "/${name}") ] ++ modules;
+          }) names
+        );
+
       lib.mkImages =
         nixpkgs: images:
         let

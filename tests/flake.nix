@@ -30,6 +30,19 @@
           imports = [ ./state-plain.nix ];
           defaults.imports = [ nixos-ab.nixosModules.default ];
         };
+        new-host = pkgs.callPackage ./new-host.nix {
+          new-host = pkgs.callPackage "${nixos-ab}/tools/package.nix" { };
+        };
+        hosts =
+          let
+            images = nixos-ab.lib.mkImages nixpkgs (
+              nixos-ab.lib.hosts ./hosts [ { nixpkgs.hostPlatform = "x86_64-linux"; } ]
+            );
+          in
+          assert
+            builtins.attrNames images.nixosConfigurations == [ "a" ]
+            && images.nixosConfigurations.a.config.system.image.id == "a";
+          pkgs.emptyFile;
         image-version =
           assert rejects "1" && !rejects null;
           pkgs.emptyFile;

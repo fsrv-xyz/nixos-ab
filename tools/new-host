@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# new-host <name>: hosts/<name>/ with a base config and a generated SSH host key in sops,
+# and the host's rules in .sops.yaml
+set -euo pipefail
+name=${1:?usage: new-host name}
+if [[ ! $name =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ || $name == admin* ]]; then
+  echo "new-host: $name: lowercase letters, digits and inner dashes, not admin…" >&2
+  exit 1
+fi
+dir=hosts/$name
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+cfg=.sops.yaml
+if [[ ! -e $cfg ]]; then
+  cfg=$tmp/sops.yaml
+  admin=$(cut -d' ' -f1,2 ~/.ssh/id_ed25519.pub) yq -n '.keys = [strenv(admin) | . anchor = "admin"]' > "$cfg"
+fi
+if yq -e ".keys[] | select(anchor == \"$name\")" "$cfg" >/dev/null 2>&1; then
+  echo "new-host: .sops.yaml: a key is already anchored &$name" >&2
+  exit 1
+fi
+admins=$(yq '[.keys[] | select(anchor == "admin*")] | join(",")' "$cfg")
+authorized=$(yq '.keys[] | select(anchor == "admin*" and test("^ssh-")) | "    \"" + . + "\""' "$cfg")
+[[ -n $authorized ]] || { echo "new-host: .sops.yaml: no &admin… SSH key to log in with" >&2; exit 1; }
+
+mkdir -p hosts
+mkdir "$dir"
+trap 'rm -rf "$tmp"; [[ -n ${done-} ]] || rm -rf "$dir"' EXIT
+ssh-keygen -q -t ed25519 -N "" -C "" -f "$tmp/key"
+# the conversion sops-nix applies to the host key on the device
+recipient=$(ssh-to-age < "$tmp/key.pub")
+
+# explicit recipients: .sops.yaml only learns of the host at the end
+encrypt() { sops --config /dev/null encrypt --age "$2" --filename-override "$1" --output "$1"; }
+{ echo "ssh_host_ed25519_key: |"; sed 's/^/  /' "$tmp/key"; } | encrypt "$dir/host-key.yaml" "$admins"
+echo "example: replace me" | encrypt "$dir/secrets.yaml" "$admins,$recipient"
+cut -d' ' -f1,2 "$tmp/key.pub" > "$dir/ssh_host_ed25519_key.pub"
+nix=$(<"$(dirname "$0")/host.nix.in")
+nix=${nix//@name@/$name}
+printf '%s\n' "${nix/@keys@/$authorized}" > "$dir/default.nix"
+
+name=$name recipient=$recipient yq -i '
+  .keys += [strenv(recipient) | . anchor = strenv(name)] |
+  ([.keys[] | select(anchor == "admin*") | anchor]) as $admins |
+  .creation_rules = [
+    {"path_regex": "hosts/" + strenv(name) + "/secrets\\.yaml$",
+     "key_groups": [{"age": [$admins[], strenv(name)] | map(. as $a | "" | . alias = $a)}]},
+    {"path_regex": "hosts/" + strenv(name) + "/host-key\\.yaml$",
+     "key_groups": [{"age": $admins | map(. as $a | "" | . alias = $a)}]}
+  ] + (.creation_rules // [])
+' "$cfg"
+[[ $cfg == .sops.yaml ]] || mv "$cfg" .sops.yaml
+done=1
+
+echo "$dir: host key $(ssh-keygen -lf "$tmp/key.pub" | cut -d' ' -f2), age recipient $recipient"
+echo "before its first boot, put the host key into provision/ssh/ on its ESP:"
+echo "  SOPS_AGE_SSH_PRIVATE_KEY_FILE=<your SSH key> sops decrypt --extract '[\"ssh_host_ed25519_key\"]' $dir/host-key.yaml"

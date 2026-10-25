@@ -17,6 +17,8 @@ jobs:
         run: git ls-files -z '*.nix' | xargs -0 nix run --inputs-from ./tests nixpkgs#nixfmt -- --check
       - name: deadnix
         run: nix run --inputs-from ./tests nixpkgs#deadnix -- --fail .
+      - name: shellcheck
+        run: nix run --inputs-from ./tests nixpkgs#shellcheck -- -S warning tools/new-host
       - name: Go
         working-directory: ab-update
         shell: nix shell --inputs-from ../tests nixpkgs#go --command bash -e {0}
@@ -26,6 +28,8 @@ jobs:
           go test ./...
       - name: Evaluate checks
         run: nix flake check ./tests --no-build
+      - name: Checks without a VM
+        run: nix build ./tests#checks.x86_64-linux.new-host ./tests#checks.x86_64-linux.hosts -L
 
   vm-test:
     needs: lint

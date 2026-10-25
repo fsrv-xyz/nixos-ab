@@ -44,6 +44,27 @@ Leave `system.image.version` unset: `ab-update` numbers the images on the device
 `system.stateVersion` follows the release you build with, as `/` does not survive a
 reboot; set it yourself once a service keeps its data on `/state`.
 
+## New host
+
+`new-host` adds a host to a repository with one directory per host:
+
+```sh
+nix run 'github:fsrv-xyz/nixos-ab?dir=tools#new-host' -- wyse3040
+```
+
+It generates the host's SSH key and creates `hosts/<name>/` with a base
+`default.nix` (as `examples/ssh`, with a plain `/state` and sops-nix),
+`secrets.yaml` for the admins and the host, `host-key.yaml` with the private
+host key for the admins only, to provision before the first boot, and the
+public key. In `.sops.yaml` the host gets a key and two creation rules ahead of
+the others. Admins are the keys anchored `&admin…`, which also log in to the
+host; a new `.sops.yaml` starts with `~/.ssh/id_ed25519.pub`. The flake reads
+the hosts with:
+
+```nix
+nixos-ab.lib.mkImages nixpkgs (nixos-ab.lib.hosts ./hosts [ sops-nix.nixosModules.sops ])
+```
+
 ## Install
 
 ```sh
@@ -194,6 +215,7 @@ partition and moves a file provisioned on the ESP into it, clears an interrupted
 update, updates over HTTP and from a local directory, leaves the running and the
 staged image alone, rolls back from an image that fails its health check and
 numbers the next image above the used-up one, keeping `/state` throughout. A
-second VM provisions a file into a plain state partition. Two evaluation checks
-cover the `system.image.version` assertion and the `system.stateVersion`
-default.
+second VM provisions a file into a plain state partition. `new-host` runs with
+throwaway keys and checks who can decrypt what. Evaluation checks cover the
+`system.image.version` assertion, the `system.stateVersion` default and
+`lib.hosts`.
