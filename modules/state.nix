@@ -58,6 +58,40 @@ in
           device = if tpm2 then "/dev/mapper/state" else "/dev/disk/ab-state";
           fsType = "ext4";
         };
+
+        systemd.services.ab-state-provision = {
+          description = "Move provisioned files from the ESP into a new state partition";
+          wantedBy = [ "sysinit.target" ];
+          after = [ "local-fs.target" ];
+          before = [
+            "sysinit.target"
+            "shutdown.target"
+          ];
+          conflicts = [ "shutdown.target" ];
+          unitConfig = {
+            DefaultDependencies = false;
+            RequiresMountsFor = [
+              "/boot"
+              "/state"
+            ];
+            ConditionDirectoryNotEmpty = "/boot/provision";
+          };
+          serviceConfig = {
+            Type = "oneshot";
+            UMask = "0077";
+          };
+          script = ''
+            # the ESP is not encrypted: what lies there must not replace existing state
+            if [ -z "$(find /state -mindepth 1 -maxdepth 1 ! -name lost+found)" ]; then
+              # not the vfat modes, which mark every file executable
+              cp -rT --no-preserve=mode /boot/provision /state
+            else
+              echo "/state is not new, discarding /boot/provision" >&2
+            fi
+            find /boot/provision -type f -exec shred --remove {} +
+            rm -r /boot/provision
+          '';
+        };
       }
       (lib.mkIf tpm2 {
         systemd.repart.partitions."50-state".Encrypt = "tpm2";

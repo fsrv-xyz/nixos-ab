@@ -75,6 +75,8 @@
             useSystemdActivation = true;
             secrets.greeting = { };
           };
+          # a host key provisioned on the ESP has to reach /state before sops reads it
+          systemd.services.sops-install-secrets.after = [ "ab-state-provision.service" ];
         };
     };
 }
