@@ -147,8 +147,9 @@ in
           ];
           path = [
             pkgs.clevis
-            # clevis' tang pin calls curl, which its wrapper leaves out
+            # called by clevis' tang pin and LUKS functions, which its wrapper leaves out
             pkgs.curl
+            pkgs.gawk
             pkgs.cryptsetup
             pkgs.jq
           ];
