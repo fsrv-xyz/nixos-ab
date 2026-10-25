@@ -67,7 +67,8 @@ in
       with subtest("Tang unlocks the state partition"):
           for t in (tang1, tang2):
               t.start()
-              t.wait_for_open_port(7654)
+              # not wait_for_open_port: it connects from localhost, which ipAddressAllow drops
+              t.wait_for_unit("tangd.socket")
           unlocked()
           assert tokens() == (["clevis"], 1)
           machine.succeed("echo 1 > /state/written-by")
