@@ -1,7 +1,15 @@
-{ config, lib, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  utils,
+  ...
+}:
 let
-  inherit (config.ab) stateSizeMiB stateEncryption;
+  inherit (config.ab) stateSizeMiB stateEncryption stateTang;
   tpm2 = stateEncryption == "tpm2";
+  tang = stateEncryption == "tang";
+  stateDevice = "${utils.escapeSystemdPath "/dev/disk/ab-state"}.device";
   # a type of its own: repart assigns existing partitions to definitions by type
   stateType = "17ea15ae-a3ca-484a-b555-4686f3574774";
   # only on the disk systemd-boot was loaded from, so another disk carrying the image never stands in
@@ -22,11 +30,30 @@ in
       '';
     };
     stateEncryption = lib.mkOption {
-      type = lib.types.nullOr (lib.types.enum [ "tpm2" ]);
+      type = lib.types.nullOr (
+        lib.types.enum [
+          "tpm2"
+          "tang"
+        ]
+      );
       default = null;
       description = ''
         Encryption of the state partition when it is created. `tpm2` seals its LUKS2 key to PCR 7 of
-        the machine's TPM, so it unlocks without a password, and only on this machine.
+        the machine's TPM, so it unlocks without a password, and only on this machine. `tang` binds
+        it with clevis to the Tang server in `ab.stateTang`, so it unlocks without a TPM once the
+        network is up, and only where that server answers.
+      '';
+    };
+    stateTang = lib.mkOption {
+      type = lib.types.attrsOf lib.types.str;
+      default = { };
+      example = {
+        url = "http://tang.example:7654";
+        thp = "dmTYXFk4tOGZvXmp9xbZaWPu0lOGBzT3I9sm1l6Eq_8";
+      };
+      description = ''
+        Configuration of clevis' tang pin for `ab.stateEncryption = "tang"`. Without `thp`, the first
+        boot trusts whichever server answers at `url`.
       '';
     };
   };
@@ -37,8 +64,8 @@ in
         systemd.repart.partitions."50-state" = {
           Type = stateType;
           Label = "state";
-          # repart encrypts only partitions it formats, so it formats both variants
-          Format = "ext4";
+          # repart encrypts only partitions it formats, so it formats the plain one too
+          Format = lib.mkIf (!tang) "ext4";
           SizeMinBytes = "${toString stateSizeMiB}M";
           SizeMaxBytes = "${toString stateSizeMiB}M";
         };
@@ -55,7 +82,7 @@ in
         services.udev.extraRules = rules;
 
         fileSystems."/state" = {
-          device = if tpm2 then "/dev/mapper/state" else "/dev/disk/ab-state";
+          device = if stateEncryption == null then "/dev/disk/ab-state" else "/dev/mapper/state";
           fsType = "ext4";
         };
       }
@@ -72,6 +99,66 @@ in
         environment.etc.crypttab.text = ''
           state /dev/disk/ab-state - tpm2-device=auto,headless=true
         '';
+      })
+      (lib.mkIf tang {
+        assertions = [
+          {
+            assertion = stateTang ? url;
+            message = "ab: ab.stateEncryption = \"tang\" needs ab.stateTang.url.";
+          }
+        ];
+
+        fileSystems."/state" = {
+          autoFormat = true;
+          options = [
+            # out of local-fs.target, which comes before the network
+            "_netdev"
+            "x-systemd.requires=ab-state-tang.service"
+            # /dev/mapper/state only appears once Tang has answered
+            "x-systemd.device-timeout=0"
+          ];
+        };
+
+        systemd.services.ab-state-tang = {
+          description = "Unlock the state partition through Tang";
+          wants = [ "network-online.target" ];
+          requires = [ stateDevice ];
+          after = [
+            "network-online.target"
+            stateDevice
+          ];
+          path = [
+            pkgs.clevis
+            # clevis' tang pin calls curl, which its wrapper leaves out
+            pkgs.curl
+            pkgs.cryptsetup
+            pkgs.jq
+          ];
+          serviceConfig = {
+            Type = "oneshot";
+            RemainAfterExit = true;
+            ExecStop = "${pkgs.cryptsetup}/bin/cryptsetup close state";
+          };
+          script = ''
+            dev=/dev/disk/ab-state
+            bound=false
+            if cryptsetup isLuks "$dev"; then
+              # a failing dump stops the script here instead of counting as unbound
+              meta=$(cryptsetup luksDump --dump-json-metadata "$dev")
+              bound=$(jq 'any(.tokens[]; .type == "clevis")' <<< "$meta")
+            fi
+            # unbound means new, or a first bind that failed after its only key was gone
+            if [ "$bound" = false ]; then
+              key=$(mktemp)
+              head -c 64 /dev/urandom > "$key"
+              cryptsetup luksFormat --batch-mode --key-file "$key" "$dev"
+              clevis luks bind -y -k "$key" -d "$dev" tang ${lib.escapeShellArg (builtins.toJSON stateTang)}
+              cryptsetup luksRemoveKey --batch-mode "$dev" "$key"
+              rm "$key"
+            fi
+            clevis luks unlock -d "$dev" -n state
+          '';
+        };
       })
     ]
   );

@@ -42,13 +42,16 @@ into the image. This repo contains no use case of its own.
   disk systemd-boot was loaded from; mounted at `/state`, required for a healthy boot.
   `ab.stateEncryption = "tpm2"` (user) makes it LUKS2 with a key sealed to PCR 7, unlocked
   in the booted system via crypttab; no recovery keyslot (*my call*, YAGNI).
+  `"tang"` (user, for machines without a TPM): repart leaves the partition raw, a unit in
+  the booted system formats it as LUKS2 behind clevis' tang pin on first use and unlocks
+  it with `clevis luks unlock` on every boot, after network-online.target.
 - Primary architecture: x86_64.
 
 ## Non-goals (for now)
 
 - Secure Boot, UKI signing, signed `SHA256SUMS` (user: later).
-- Persistent data by default, a var partition, persisted machine-id or logs, encryption
-  of the state partition without a TPM.
+- Persistent data by default, a var partition, persisted machine-id or logs, recovery
+  keys for the encrypted state partition.
 - aarch64 builds and tests (don't block them gratuitously, don't test them).
 - Installer flow (USB boot that installs to internal disk). Install = `dd` raw image,
   which holds both slots.
