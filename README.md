@@ -36,9 +36,7 @@ sysupdate features used here; the tests run on nixos-26.05 (systemd 260).
 |---|---|---|
 | `ab.storeSizeMiB` | `2048` | size of each store slot, fixed at install; every image must fit |
 | `ab.stateSizeMiB` | `null` | size of the [state partition](#state), none if `null` |
-| `ab.stateEncryption` | `null` | `"tpm2"` or `"tang"`: encrypt the state partition |
-| `ab.stateTang.servers` | `[ ]` | Tang servers for `"tang"`, each a clevis tang pin configuration |
-| `ab.stateTang.threshold` | `1` | how many of them have to answer |
+| `ab.stateEncryption` | `null` | `"tpm2"`: encrypt the state partition with a key sealed to the TPM |
 | `ab.update.url` | `null` | default source of `ab-update` |
 | `ab.rollback.timeout` | `"5min"` | time a counted boot has to reach `boot-complete.target` |
 
@@ -120,22 +118,6 @@ and the boot fails. Deleting the partition, e.g. `sfdisk --delete /dev/sda 6`,
 has the next boot create it again, empty; so does switching a device between a
 plain and an encrypted state partition.
 
-Without a TPM, `ab.stateEncryption = "tang"` binds the partition with clevis to
-Tang servers instead, through clevis' `sss` pin:
-
-```nix
-ab.stateTang.servers = [
-  # thp: tang-show-keys on the server; without it the first boot trusts any server
-  { url = "http://tang1.example:7654"; thp = "…"; }
-  { url = "http://tang2.example:7654"; thp = "…"; }
-];
-```
-
-The first boot formats it as LUKS2 once the network is online, and every boot
-unlocks it once `ab.stateTang.threshold` of the servers answer. Until then,
-`/state` stays locked and the boot fails. A partition without a clevis binding, after a first boot
-without Tang or a switch from another variant, is formatted again.
-
 ## Health and rollback
 
 A counted boot is good once `boot-complete.target` is reached: no failed
@@ -162,7 +144,7 @@ where one exists.
 ## Not included
 
 - Secure Boot and signing of UKIs or `SHA256SUMS`; HTTP transfers use `Verify=no`.
-- Recovery keys for the encrypted state partition, persisted machine-id and logs.
+- Encryption of the state partition without a TPM, recovery keys, persisted machine-id and logs.
 
 ## Examples
 
@@ -180,7 +162,5 @@ One QEMU VM with a TPM boots the image via UEFI, adds the encrypted state
 partition, clears an interrupted update, updates over HTTP and from a local
 directory, leaves the running and the staged image alone, rolls back from an
 image that fails its health check and numbers the next image above the used-up
-one, keeping `/state` throughout. A second test binds the state partition to two
-Tang servers and checks that one of them is enough, and that it stays locked,
-and intact, while both are down. Two evaluation checks cover the
+one, keeping `/state` throughout. Two evaluation checks cover the
 `system.image.version` assertion and the `system.stateVersion` default.
