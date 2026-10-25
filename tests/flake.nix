@@ -26,6 +26,10 @@
           imports = [ ./ab.nix ];
           defaults.imports = [ nixos-ab.nixosModules.default ];
         };
+        state-plain = pkgs.testers.runNixOSTest {
+          imports = [ ./state-plain.nix ];
+          defaults.imports = [ nixos-ab.nixosModules.default ];
+        };
         image-version =
           assert rejects "1" && !rejects null;
           pkgs.emptyFile;

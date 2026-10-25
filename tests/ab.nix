@@ -1,5 +1,6 @@
 { lib, pkgs, ... }:
 let
+  provisionedDisk = import ./provisioned-disk.nix { inherit pkgs; };
   build = n: { environment.etc."ab-build".text = toString n; };
   # 9p hands symlinks to the guest unresolved, so the share needs real files
   artifacts =
@@ -18,21 +19,14 @@ in
   globalTimeout = 900;
 
   defaults = {
-    system.image.id = "ab";
+    imports = [ ./image.nix ];
     ab.storeSizeMiB = 2048;
     ab.stateSizeMiB = 64;
     ab.stateEncryption = "tpm2";
     ab.update.url = "http://127.0.0.1:8080/";
     ab.rollback.timeout = "30s";
     environment.systemPackages = [ pkgs.darkhttpd ];
-    virtualisation = {
-      memorySize = 1024;
-      directBoot.enable = false;
-      mountHostNixStore = false;
-      useEFIBoot = true;
-      tpm.enable = true;
-      fileSystems = lib.mkVMOverride { };
-    };
+    virtualisation.tpm.enable = true;
   };
 
   nodes.v1 =
@@ -73,25 +67,7 @@ in
       import subprocess
       import tempfile
 
-      # a copy of the image with a file to provision on its ESP
-      image = tempfile.NamedTemporaryFile()
-      subprocess.run(["cp", "--sparse=always", "${nodes.v1.system.build.release}/${nodes.v1.image.filePath}", image.name], check=True)
-      table = json.loads(subprocess.run(["${pkgs.util-linux}/bin/sfdisk", "--json", image.name], check=True, capture_output=True).stdout)["partitiontable"]
-      esp = f"{image.name}@@{table['partitions'][0]['start'] * table['sectorsize']}"
-      provisioned = tempfile.NamedTemporaryFile("w")
-      provisioned.write("provisioned\n")
-      provisioned.flush()
-      env = dict(os.environ, MTOOLS_SKIP_CHECK="1")
-      subprocess.run(["${pkgs.mtools}/bin/mmd", "-i", esp, "::provision"], check=True, env=env)
-      subprocess.run(["${pkgs.mtools}/bin/mcopy", "-i", esp, provisioned.name, "::provision/hello"], check=True, env=env)
-
-      disk = tempfile.NamedTemporaryFile()
-      subprocess.run([
-        "${pkgs.qemu_kvm}/bin/qemu-img", "create", "-f", "qcow2",
-        "-b", image.name, "-F", "raw",
-        disk.name, "8G",
-      ], check=True)
-      os.environ["NIX_DISK_IMAGE"] = disk.name
+      ${provisionedDisk nodes.v1}
 
       SLOT_MIB = [32, 2048]
       STATE_MIB = [64]
