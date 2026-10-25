@@ -127,7 +127,6 @@ in
         ];
 
         fileSystems."/state" = {
-          autoFormat = true;
           options = [
             # out of local-fs.target, which comes before the network
             "_netdev"
@@ -151,6 +150,7 @@ in
             pkgs.curl
             pkgs.gawk
             pkgs.cryptsetup
+            pkgs.e2fsprogs
             pkgs.jq
           ];
           serviceConfig = {
@@ -171,11 +171,16 @@ in
               key=$(mktemp)
               head -c 64 /dev/urandom > "$key"
               cryptsetup luksFormat --batch-mode --key-file "$key" "$dev"
+              cryptsetup open --key-file "$key" "$dev" state
+              # not x-systemd.makefs: systemd ignores a crypt device without a file system
+              # (99-systemd.rules), so the makefs unit would wait for it forever
+              mkfs.ext4 -q -L state /dev/mapper/state
               clevis luks bind -y -k "$key" -d "$dev" sss ${lib.escapeShellArg sss}
               cryptsetup luksRemoveKey --batch-mode "$dev" "$key"
               rm "$key"
+            else
+              clevis luks unlock -d "$dev" -n state
             fi
-            clevis luks unlock -d "$dev" -n state
           '';
         };
       })
