@@ -192,6 +192,25 @@ check. Initrd failures reboot after 10 s (`boot.panic_on_fail panic=10`); a hung
 kernel or PID 1 is caught by the hardware watchdog (`RuntimeWatchdogSec=30s`)
 where one exists.
 
+## Editing on the device
+
+`/etc` lies on the tmpfs root, but its files link into the read-only store. For
+a fix on the device itself, `ab-overlay` lays a tmpfs over `/nix/store`, so
+every file of the running image can be edited until the next reboot:
+
+```sh
+ab-overlay
+$EDITOR /etc/bird/bird.conf    # writes through the link into the overlay
+systemctl reload bird
+ab-overlay status              # a diff per changed file, to carry back into the configuration
+```
+
+The changes live in RAM and are gone with the next reboot, the one into an
+update included. A changed store file changes for everything that uses its
+path. Services see the overlay at once, also in mount namespaces of their own;
+a process keeps a file it opened before. `umount -l /nix/store` ends the
+overlay without a reboot.
+
 ## Not included
 
 - Secure Boot and signing of UKIs or `SHA256SUMS`; HTTP transfers use `Verify=no`.
@@ -214,7 +233,8 @@ One QEMU VM with a TPM boots the image via UEFI, adds the encrypted state
 partition and moves a file provisioned on the ESP into it, clears an interrupted
 update, updates over HTTP and from a local directory, leaves the running and the
 staged image alone, rolls back from an image that fails its health check and
-numbers the next image above the used-up one, keeping `/state` throughout. A
+numbers the next image above the used-up one, keeping `/state` throughout;
+`ab-overlay` changes and deletes store files until a reboot. A
 second VM provisions a file into a plain state partition. `new-host` runs with
 throwaway keys and checks who can decrypt what. Evaluation checks cover the
 `system.image.version` assertion, the `system.stateVersion` default and

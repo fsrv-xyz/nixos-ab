@@ -52,6 +52,10 @@ into the image. This repo contains no use case of its own.
   host, `host-key.yaml` with the private host key for admins only) and adds the host to
   `.sops.yaml` last. ssh-keygen, sops, ssh-to-age and yq-go do the work, so the script stays
   at about 50 lines. `lib.hosts` reads the directories.
+- `ab-overlay` (user): edits on the device for one boot, as with bootc's `usr-overlay`: a
+  tmpfs overlay over `/nix/store`, since `/etc` is writable already and its files link
+  into the store. A shell script (user) that shows a diff of the changes (*my call*); gone
+  with the next reboot (user).
 - Primary architecture: x86_64.
 
 ## Non-goals (for now)

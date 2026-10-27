@@ -4,5 +4,6 @@
     ./update.nix
     ./rollback.nix
     ./state.nix
+    ./overlay.nix
   ];
 }
