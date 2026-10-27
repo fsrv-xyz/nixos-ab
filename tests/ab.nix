@@ -33,6 +33,13 @@ in
     { nodes, ... }:
     {
       imports = [ (build 1) ];
+      systemd.services.sandboxed = {
+        wantedBy = [ "multi-user.target" ];
+        serviceConfig = {
+          ProtectSystem = "strict";
+          ExecStart = "${pkgs.coreutils}/bin/sleep infinity";
+        };
+      };
       virtualisation.qemu.options = [
         "-virtfs local,path=${artifacts nodes},mount_tag=artifacts,security_model=none,readonly=on"
       ];
@@ -116,6 +123,25 @@ in
           v1.reboot()
           v1.wait_for_unit("multi-user.target")
           v1.fail("test -e /state/late -o -e /boot/provision")
+
+      with subtest("ab-overlay makes the store writable until reboot"):
+          issue = v1.succeed("cat /etc/issue")
+          store = v1.succeed("stat -c '%a %U %G' /nix/store")
+          built = v1.succeed("readlink -f /etc/ab-build").strip()
+          v1.succeed("ab-overlay")
+          v1.fail("ab-overlay")
+          assert v1.succeed("stat -c '%a %U %G' /nix/store") == store
+          v1.succeed("echo edited >> /etc/issue && test -L /etc/issue")
+          v1.succeed(f"rm {built}")
+          sandboxed = v1.succeed("systemctl show -P MainPID sandboxed").strip()
+          v1.succeed(f"nsenter -t {sandboxed} -m grep -x edited /etc/issue")
+          status = v1.succeed("ab-overlay status")
+          assert "\n+edited\n" in status and f"deleted {built}\n" in status, status
+          v1.reboot()
+          v1.wait_for_unit("multi-user.target")
+          v1.fail("findmnt --types overlay /nix/store")
+          assert v1.succeed("cat /etc/issue") == issue
+          assert build() == "1"
 
       with subtest("interrupted update adds no partitions and vacuums clean"):
           serve("v2")
