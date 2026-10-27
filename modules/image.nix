@@ -33,6 +33,12 @@ let
     VerityDataBlockSizeBytes = 4096;
     VerityHashBlockSizeBytes = 4096;
   };
+  # these outputs hold the system as data: a store path the scanner finds in them (the UKI's
+  # command line names the system) would make every copy of them take the whole system along
+  noReferences = {
+    __structuredAttrs = true;
+    unsafeDiscardReferences.out = true;
+  };
 in
 {
   imports = [ "${modulesPath}/image/repart.nix" ];
@@ -97,12 +103,15 @@ in
         inherit (config.system.build) image uki;
       in
       pkgs.runCommand "${id}-update"
-        {
-          nativeBuildInputs = [
-            pkgs.buildPackages.jq
-            pkgs.buildPackages.zstd
-          ];
-        }
+        (
+          {
+            nativeBuildInputs = [
+              pkgs.buildPackages.jq
+              pkgs.buildPackages.zstd
+            ];
+          }
+          // noReferences
+        )
         ''
           mkdir $out
           cp ${uki}/${config.system.boot.loader.ukiFile} $out/${id}.efi
@@ -118,10 +127,25 @@ in
           sha256sum * > SHA256SUMS
         '';
 
-    system.build.release = pkgs.linkFarm id {
-      ${config.image.filePath} = "${config.system.build.image}/${config.image.filePath}";
-      update = config.system.build.update;
-    };
+    system.build.diskImage =
+      pkgs.runCommand "${id}-disk-image"
+        ({ nativeBuildInputs = [ pkgs.buildPackages.zstd ]; } // noReferences)
+        ''
+          mkdir $out
+          zstd -q -T0 ${config.system.build.image}/${config.image.filePath} -o $out/${config.image.filePath}.zst
+        '';
+
+    system.build.release =
+      (pkgs.linkFarm id {
+        "${config.image.filePath}.zst" = "${config.system.build.diskImage}/${config.image.filePath}.zst";
+        update = config.system.build.update;
+      }).overrideAttrs
+        (old: {
+          passthru = old.passthru // {
+            image = config.system.build.diskImage;
+            inherit (config.system.build) update;
+          };
+        });
 
     image.repart = {
       name = id;

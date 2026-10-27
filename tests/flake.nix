@@ -35,6 +35,7 @@
           imports = [ ./install-host.nix ];
           nodes.client.environment.systemPackages = [ tools ];
           nodes.device.imports = [ nixos-ab.nixosModules.default ];
+          nodes.updated.imports = [ nixos-ab.nixosModules.default ];
         };
         new-host = pkgs.callPackage ./new-host.nix { new-host = tools; };
         hosts =

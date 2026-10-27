@@ -18,6 +18,11 @@
                   mainProgram = "install-host";
                 };
               };
+              update-host = tools // {
+                meta = tools.meta // {
+                  mainProgram = "update-host";
+                };
+              };
             }
           );
     };

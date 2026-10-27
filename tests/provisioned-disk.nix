@@ -2,7 +2,9 @@
 { pkgs }:
 node: ''
   image = tempfile.NamedTemporaryFile()
-  subprocess.run(["cp", "--sparse=always", "${node.system.build.release}/${node.image.filePath}", image.name], check=True)
+  subprocess.run(["${pkgs.zstd}/bin/zstd", "-dqf", "${node.system.build.diskImage}/${node.image.filePath}.zst", "-o", image.name], check=True)
+  # zstd gives the output the mode of the read-only store file
+  os.chmod(image.name, 0o600)
   table = json.loads(subprocess.run(["${pkgs.util-linux}/bin/sfdisk", "--json", image.name], check=True, capture_output=True).stdout)["partitiontable"]
   esp = f"{image.name}@@{table['partitions'][0]['start'] * table['sectorsize']}"
   provisioned = tempfile.NamedTemporaryFile("w")
