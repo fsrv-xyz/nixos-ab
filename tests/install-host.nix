@@ -6,32 +6,7 @@ let
     services.openssh.enable = true;
     users.users.root.openssh.authorizedKeys.keys = [ keys.snakeOilEd25519PublicKey ];
   };
-in
-{
-  name = "install-host";
-  globalTimeout = 1200;
-
-  nodes.client =
-    { nodes, ... }:
-    {
-      programs.ssh.extraConfig = "StrictHostKeyChecking accept-new";
-      # install-host reads the whole image twice: from a disk, not the 9p share of the host store
-      virtualisation.useNixStoreImage = true;
-      virtualisation.additionalPaths = [ nodes.device.system.build.release ];
-    };
-  nodes.rescue = {
-    imports = [ sshd ];
-    environment.systemPackages = [ pkgs.zstd ];
-    virtualisation.emptyDiskImages = [
-      {
-        size = 8192;
-        # the image's zeros stay unallocated in the qcow2
-        driveConfig.driveExtraOpts.detect-zeroes = "on";
-      }
-    ];
-  };
-  # the machine the rescue system ran on, booting the disk it wrote
-  nodes.device =
+  device =
     { lib, nodes, ... }:
     {
       imports = [
@@ -61,9 +36,53 @@ in
       ];
       systemd.services.sshd-keygen.unitConfig.RequiresMountsFor = [ "/state" ];
     };
+in
+{
+  name = "install-host";
+  globalTimeout = 1200;
+
+  nodes.client =
+    { nodes, ... }:
+    {
+      programs.ssh.extraConfig = "StrictHostKeyChecking accept-new";
+      # install-host reads the whole image repeatedly: from a disk, not the 9p share of the host store
+      virtualisation.useNixStoreImage = true;
+      virtualisation.additionalPaths = [
+        nodes.device.system.build.release
+        nodes.updated.system.build.update
+      ];
+    };
+  nodes.rescue = {
+    imports = [ sshd ];
+    environment.systemPackages = [ pkgs.zstd ];
+    virtualisation.emptyDiskImages = [
+      {
+        size = 8192;
+        # the image's zeros stay unallocated in the qcow2
+        driveConfig.driveExtraOpts.detect-zeroes = "on";
+      }
+    ];
+  };
+  # the machine the rescue system ran on, booting the disk it wrote
+  nodes.device = device;
+  # never started: its image is the update for device
+  nodes.updated = {
+    imports = [ device ];
+    environment.etc.generation.text = "update";
+  };
 
   testScript =
     { nodes, ... }:
+    let
+      inherit (nodes.device.system.build) diskImage;
+      inherit (nodes.updated.system.build) update;
+      closure = pkgs.closureInfo {
+        rootPaths = [
+          diskImage
+          update
+        ];
+      };
+    in
     ''
       import os
 
@@ -99,11 +118,32 @@ in
               assert state() == "running"
               rescue.wait_for_shutdown()
               os.environ["NIX_DISK_IMAGE"] = str(rescue.state_dir / "empty0.qcow2")
-              device.start()
+              device.start(allow_reboot=True)
               client.wait_until_succeeds("[ $(systemctl show --property SubState --value install-host) != running ]")
           finally:
               print(client.execute("journalctl --unit install-host --output cat")[1])
           assert state() == "exited"
           device.fail("test -e /boot/provision")
+
+      with subtest("the image and the update reference no store paths"):
+          with open("${closure}/store-paths") as f:
+              assert sorted(f.read().split()) == sorted(["${diskImage}", "${update}"])
+
+      def update():
+          return client.succeed("update-host --reboot root@rescue ${update} 2>&1", timeout=900)
+
+      with subtest("update-host installs an update and waits for its blessed boot"):
+          # rescue's key was recorded under this name
+          client.succeed("ssh-keygen -R rescue")
+          out = update()
+          print(out)
+          # the device rebooted itself; the driver still holds the previous boot's shell
+          device.connected = False
+          device.connect()
+          assert "boots next" in out and "blessed" in out, out
+          assert client.succeed("ssh root@rescue cat /etc/generation") == "update"
+
+      with subtest("update-host does not reboot into the image already running"):
+          assert "runs this image already" in update()
     '';
 }

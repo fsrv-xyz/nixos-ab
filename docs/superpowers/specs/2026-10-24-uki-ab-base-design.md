@@ -59,6 +59,15 @@ into the image. This repo contains no use case of its own.
 - `install-host` (user): the first install of such a host over SSH into a rescue system: it
   writes the image, verifies it on the disk, provisions the host key and, on request,
   reboots and checks the host by its key. A local disk is left to `dd`.
+- `update-host` (user): `ab-update` on a running host from the admin's machine over the SSH
+  connection; with `--reboot` it waits for the boot to be blessed or reports the rollback.
+  It trusts the known_hosts entry of the running host (*my call*), so the host key has to
+  survive the reboot, as one on `/state` does. It gives up after 20 minutes without a new
+  boot (*my call*): a limit per boot, as it knows neither the boot time nor the rollback
+  timeout of the device.
+- Image and update build on their own, as `<name>.image` and `<name>.update` of the package
+  (user), and without references, so a copy does not take the system along (user); the
+  image is zstd-compressed (*my call*).
 - Primary architecture: x86_64.
 
 ## Non-goals (for now)
@@ -121,8 +130,9 @@ Consumer view (*my guess at the interface, names open*):
 nixos-ab.lib.mkImages nixpkgs { router = ./router.nix; }
 # router.nix sets ab.update.url; the name is system.image.id
 # → nixosConfigurations.router, packages.<system>.router = .config.system.build.release
-# .config.system.build.release    → <id>.raw (initial disk) and update/
-#                                   (artifacts without a version, usrhash, SHA256SUMS)
+# .config.system.build.release    → <id>.raw.zst (initial disk) and update/
+#                                   (artifacts without a version, usrhash, SHA256SUMS);
+#                                   each on its own as .image and .update
 ```
 
 `ab-update [directory | URL | vacuum]` (*my call* on the mechanism): sysupdate reads

@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# update-host [--reboot] <ssh target> [update]: installs an update (default ./result, or the
+# update/ of a release) on a running host with ab-update, served over the SSH connection
+set -euo pipefail
+
+fail() {
+  echo "update-host: $*" >&2
+  exit 1
+}
+reboot=
+if [[ ${1-} == --reboot ]]; then
+  reboot=1
+  shift
+fi
+if (($# < 1 || $# > 2)); then
+  echo "usage: update-host [--reboot] ssh-target [update]" >&2
+  exit 2
+fi
+target=$1 update=${2:-result}
+[[ ! -e $update/update ]] || update=$update/update
+[[ -e $update/SHA256SUMS ]] || fail "$update holds no update: nix build .#<name>.update"
+(cd "$update" && sha256sum --check --quiet --strict SHA256SUMS) || fail "$update does not match its SHA256SUMS"
+usrhash=$(<"$update/usrhash")
+
+tmp=$(mktemp -d)
+trap 'rm -r "$tmp"' EXIT
+# port 0: a free port, so no other server on 127.0.0.1 can answer ab-update
+port=$(darkhttpd "$update" --addr 127.0.0.1 --port 0 --daemon --pidfile "$tmp/server" --log /dev/null |
+  sed -n 's|^listening on: http://127.0.0.1:\([0-9]*\)/$|\1|p')
+trap 'kill "$(<"$tmp/server")"; rm -r "$tmp"' EXIT
+ssh -o ExitOnForwardFailure=yes -R "$port:127.0.0.1:$port" "$target" ab-update "http://127.0.0.1:$port/"
+[[ -n $reboot ]] || exit 0
+
+probe='echo "$(</proc/sys/kernel/random/boot_id)" "$(sed -n "s/.*usrhash=\([0-9a-f]*\).*/\1/p" /proc/cmdline)" \
+  "$(/run/current-system/systemd/lib/systemd/systemd-bless-boot status)" \
+  "$(bootctl status 2>/dev/null | sed -n "s/^ *Current Entry: //p")"'
+read -r previous running _ < <(ssh -n "$target" "$probe") || fail "$target: no answer"
+if [[ $running == "$usrhash" ]]; then
+  echo "update-host: $target runs this image already"
+  previous=
+else
+  echo "update-host: rebooting $target"
+  ssh -n "$target" systemctl reboot || :
+fi
+# an unblessed boot reboots until systemd-boot falls back, up to three tries
+patience=1200
+deadline=$((SECONDS + patience)) seen=$previous
+while :; do
+  if ((SECONDS >= deadline)); then
+    cat "$tmp/ssh" >&2
+    fail "$target: no answer from a new boot for $((patience / 60)) minutes"
+  fi
+  if read -r id running assessment entry < <(ssh -n -o BatchMode=yes -o ConnectTimeout=5 -o ServerAliveInterval=10 \
+    "$target" "$probe" 2>"$tmp/ssh") && [[ $id != "$previous" ]]; then
+    [[ $running == "$usrhash" ]] || fail "$target rolled back to $entry"
+    case $assessment in
+    good | clean)
+      echo "update-host: $target runs $entry, its boot is blessed"
+      exit 0
+      ;;
+    esac
+    [[ $id == "$seen" ]] || deadline=$((SECONDS + patience)) seen=$id
+  fi
+  sleep 10
+done

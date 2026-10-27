@@ -69,23 +69,29 @@ nixos-ab.lib.mkImages nixpkgs (nixos-ab.lib.hosts ./hosts [ sops-nix.nixosModule
 
 ```sh
 nix build .#router
-dd if=result/router.raw of=/dev/sdX bs=4M conv=fsync
+zstd -dc < result/router.raw.zst | dd of=/dev/sdX bs=4M conv=fsync
 ```
 
-`result` holds the disk image and `update/`, the artifacts that roll this
-build out to installed devices. The image holds the ESP, slot A and an
-empty slot B, so the disk must be at least as large as the image, plus the
-state partition if the image has one.
+`result` holds the disk image, compressed, and `update/`, the artifacts that
+roll this build out to installed devices; `<name>.image` and `<name>.update`
+build one of them. The packages lie under the image's system, `x86_64-linux`: on
+another machine, such as a Mac with a remote builder, name them in full, as in
+`.#packages.x86_64-linux.router.update`. Neither references the system it
+contains, so copying one, with `nix copy` or out of a remote store, takes only
+its own size. zstd reads the image from stdin, as it skips a symbolic link given
+as a file. The image holds the ESP, slot A and an empty slot B, so the disk must
+be at least as large as the image, plus the state partition if the image has
+one.
 
 For a host made by `new-host`, `install-host` does this over SSH, from the
 repository, on a machine running a rescue or live system with `zstd`:
 
 ```sh
-nix build .#wyse3040
+nix build .#wyse3040.image
 nix run 'github:fsrv-xyz/nixos-ab?dir=tools#install-host' -- --reboot wyse3040 root@rescue /dev/mmcblk0
 ```
 
-It shows the disk and asks for the host's name, streams the image compressed,
+It shows the disk and asks for the host's name, streams the compressed image,
 compares its sha256 on the disk and puts the host key into `provision/ssh/` on
 the ESP. With `--reboot` it reboots the machine and waits, at the same address,
 for the host's own key and `systemctl is-system-running`.
@@ -99,8 +105,8 @@ the initrd: NixOS adds none for virtio, so a QEMU or Proxmox guest imports
 Build again; there is no version to raise:
 
 ```sh
-nix build .#router
-# result/update: <id>.efi, store and verity partitions (.raw.zst), usrhash, SHA256SUMS
+nix build .#router.update
+# result: <id>.efi, store and verity partitions (.raw.zst), usrhash, SHA256SUMS
 ```
 
 Then, on the device, install it from `ab.update.url`, another URL or a
@@ -113,13 +119,22 @@ ab-update /path/to/update
 systemctl reboot
 ```
 
-Without a web server, serve `result/update` from your machine through an SSH
-tunnel; sysupdate still streams it straight into the slot:
+Without a web server, `update-host` serves the update from your machine
+through the SSH connection; sysupdate still streams it straight into the slot:
 
 ```sh
-python3 -m http.server 8080 --bind 127.0.0.1 -d result/update &
-ssh -R 8080:127.0.0.1:8080 root@device ab-update http://127.0.0.1:8080/
+nix run 'github:fsrv-xyz/nixos-ab?dir=tools#update-host' -- --reboot root@device
 ```
+
+It checks `SHA256SUMS` and runs `ab-update` against the update (default
+`./result`, or the `update/` of a release). With `--reboot` it reboots the
+device unless it runs the image already, and waits for the boot of the update
+to be blessed; if the device falls back to the previous image instead, it says
+so and fails. It gives up once no new boot shows up for 20 minutes, which a
+reboot plus `ab.rollback.timeout` has to stay below. Waiting needs an SSH login
+without a prompt, such as a key in an agent, and a host key that survives the
+reboot, such as the one `new-host` puts on `/state`: the default key in
+`/etc/ssh` is new on every boot.
 
 `ab-update` compares the image's root hash with the running image and the UKI
 that boots next, and stops if either matches. Otherwise it numbers the image
@@ -171,7 +186,7 @@ ssh-keygen -t ed25519 -N "" -C "" -f ssh_host_ed25519_key
 ssh-to-age < ssh_host_ed25519_key.pub   # add to .sops.yaml as the device's recipient
 SOPS_AGE_SSH_PRIVATE_KEY_FILE=~/.ssh/id_ed25519 sops updatekeys secrets.yaml
 nix build .#example
-dd if=result/example.raw of=/dev/sdX bs=4M conv=fsync
+zstd -dc < result/example.raw.zst | dd of=/dev/sdX bs=4M conv=fsync
 mount /dev/sdX1 /mnt
 mkdir -p /mnt/provision/ssh
 cp ssh_host_ed25519_key ssh_host_ed25519_key.pub /mnt/provision/ssh/
@@ -247,9 +262,10 @@ partition and moves a file provisioned on the ESP into it, clears an interrupted
 update, updates over HTTP and from a local directory, leaves the running and the
 staged image alone, rolls back from an image that fails its health check and
 numbers the next image above the used-up one, keeping `/state` throughout;
-`ab-overlay` changes and deletes store files until a reboot. A
-second VM provisions a file into a plain state partition. `new-host` runs with
-throwaway keys and checks who can decrypt what. `install-host` writes a host to
-the disk of a rescue VM, which then boots it as the host. Evaluation checks cover the
+`ab-overlay` changes and deletes store files until a reboot. A second VM
+provisions a file into a plain state partition. `new-host` runs with throwaway
+keys and checks who can decrypt what. `install-host` writes a host to the disk
+of a rescue VM, which then boots it as the host, and `update-host` updates it
+and waits for the blessed boot of the update. Evaluation checks cover the
 `system.image.version` assertion, the `system.stateVersion` default and
 `lib.hosts`.
