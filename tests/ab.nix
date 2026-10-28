@@ -44,7 +44,10 @@ in
         "-virtfs local,path=${artifacts nodes},mount_tag=artifacts,security_model=none,readonly=on"
       ];
     };
-  nodes.v2 = build 2;
+  nodes.v2 = {
+    imports = [ (build 2) ];
+    ab.stateSizeMiB = lib.mkForce 128;
+  };
   nodes.v3 = build 3;
   nodes.v4 = {
     imports = [ (build 4) ];
@@ -78,6 +81,7 @@ in
 
       SLOT_MIB = [32, 2048]
       STATE_MIB = [64]
+      GROWN_MIB = [128]
 
       # not lsblk: its udev-sourced labels miss sysupdate's relabels
       def partitions():
@@ -89,6 +93,13 @@ in
 
       def build():
           return v1.succeed("cat /etc/ab-build")
+
+      # ext4 on the whole dm-crypt device, which spans the partition after its LUKS2 header
+      def state_mib():
+          info = dict(l.split(":", 1) for l in v1.succeed("tune2fs -l /dev/mapper/state").splitlines() if ":" in l)
+          fs = int(info["Block count"]) * int(info["Block size"]) // 2**20
+          device = int(v1.succeed("blockdev --getsize64 /dev/mapper/state")) // 2**20
+          return fs, device
 
       def serve(version):
           v1.succeed("mount --mkdir -t 9p -o trans=virtio,ro artifacts /mnt")
@@ -165,6 +176,11 @@ in
           assert build() == "2"
           v1.succeed("grep -x 1 /state/written-by")
           v1.succeed("test -f /boot/EFI/Linux/ab_2.efi")
+
+      with subtest("an update with a larger state partition grows it, its LUKS2 volume and ext4"):
+          assert slot("state") == GROWN_MIB
+          fs, device = state_mib()
+          assert fs == device > STATE_MIB[0], (fs, device)
           assert slot("ab_1") == slot("ab_2") == SLOT_MIB
 
       with subtest("the running image is not installed again"):
@@ -182,6 +198,9 @@ in
           v1.wait_for_unit("systemd-bless-boot.service")
           assert build() == "3"
           assert slot("ab_1") == [] and slot("ab_3") == SLOT_MIB
+          # repart never shrinks: the smaller size of v3 keeps the grown partition
+          assert slot("state") == GROWN_MIB
+          assert state_mib() == (fs, device)
           assert v1.succeed("ls /boot/EFI/Linux").split() == ["ab_2.efi", "ab_3.efi"]
 
       with subtest("bad v4 rolls back to v3 unattended"):
@@ -196,7 +215,7 @@ in
           v1.wait_for_unit("multi-user.target")
           assert build() == "3"
           v1.succeed("grep -x 1 /state/written-by")
-          assert slot("state") == STATE_MIB
+          assert slot("state") == GROWN_MIB
           v1.succeed("test -f /boot/EFI/Linux/ab_4+0-3.efi")
           entries = json.loads(v1.succeed("bootctl list --json=short"))
           uki = [e for e in entries if e["type"] == "type2"]

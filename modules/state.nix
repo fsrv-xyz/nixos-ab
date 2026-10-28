@@ -41,6 +41,9 @@ in
           Format = "ext4";
           SizeMinBytes = "${toString stateSizeMiB}M";
           SizeMaxBytes = "${toString stateSizeMiB}M";
+          # the free space goes behind it, so a larger stateSizeMiB can grow it: without padding of
+          # its own repart leaves the space with slot B and puts the partition at the end of the disk
+          PaddingWeight = 1;
         };
         boot.initrd.systemd.repart = {
           enable = true;
@@ -57,6 +60,8 @@ in
         fileSystems."/state" = {
           device = if tpm2 then "/dev/mapper/state" else "/dev/disk/ab-state";
           fsType = "ext4";
+          # repart grows the partition, not its ext4; a LUKS2 volume, opened later, spans it anyway
+          options = [ "x-systemd.growfs" ];
         };
 
         systemd.services.ab-state-provision = {
