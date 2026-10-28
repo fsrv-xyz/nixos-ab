@@ -35,7 +35,7 @@ sysupdate features used here; the tests run on nixos-26.05 (systemd 260).
 | Option | Default | |
 |---|---|---|
 | `ab.storeSizeMiB` | `2048` | size of each store slot, fixed at install; every image must fit |
-| `ab.stateSizeMiB` | `null` | size of the [state partition](#state), none if `null` |
+| `ab.stateSizeMiB` | `null` | size of the [state partition](#state), none if `null`; a larger one grows it |
 | `ab.stateEncryption` | `null` | `"tpm2"`: encrypt the state partition with a key sealed to the TPM |
 | `ab.update.url` | `null` | default source of `ab-update` |
 | `ab.rollback.timeout` | `"5min"` | time a counted boot has to reach `boot-complete.target` |
@@ -150,11 +150,17 @@ refuses to retry until it is cleared: run `ab-update vacuum` first.
 
 `/` is tmpfs. An image that sets `ab.stateSizeMiB` gets a partition of that
 size, mounted at `/state`: on its first boot, systemd-repart in the initrd adds
-it behind slot B on the disk systemd-boot was loaded from and formats it ext4.
-Updates and rollbacks leave it alone; writing the raw image again wipes it. A boot without it fails the health check, so a disk
-without room for it, such as a VM disk the size of the image, needs to grow
-first. What lives there is up to the image: [`examples/ssh`](examples/ssh)
-keeps its SSH host key there.
+it right behind slot B on the disk systemd-boot was loaded from, with the free
+space after it, and formats it ext4. Updates and rollbacks leave it alone;
+writing the raw image again wipes it. An update with a larger `ab.stateSizeMiB`
+grows the partition on its next boot: an encrypted volume, opened after that,
+spans it, and systemd-growfs grows ext4 while mounting. A smaller one does not
+shrink it. A state partition at the end of the disk, where earlier releases put
+it, cannot grow, as repart does not move partitions; deleted (see below), it
+comes back behind slot B, empty. A boot without it fails the health check, so a
+disk without room for it, such as a VM disk the size of the image, needs to grow
+first. What lives there is up to the image: [`examples/ssh`](examples/ssh) keeps
+its SSH host key there.
 
 With `ab.stateEncryption = "tpm2"`, repart creates the partition as LUKS2 with
 its key sealed to PCR 7 of the machine's TPM 2.0, so it unlocks without a
