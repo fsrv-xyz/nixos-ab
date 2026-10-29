@@ -67,7 +67,8 @@ into the image. This repo contains no use case of its own.
   It trusts the known_hosts entry of the running host (*my call*), so the host key has to
   survive the reboot, as one on `/state` does. It gives up after 20 minutes without a new
   boot (*my call*): a limit per boot, as it knows neither the boot time nor the rollback
-  timeout of the device.
+  timeout of the device. A host key ssh refuses ends the wait at once (user), as waiting
+  does not change it.
 - Image and update build on their own, as `<name>.image` and `<name>.update` of the package
   (user), and without references, so a copy does not take the system along (user); the
   image is zstd-compressed (*my call*).

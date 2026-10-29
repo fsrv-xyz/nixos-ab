@@ -61,5 +61,10 @@ while :; do
     esac
     [[ $id == "$seen" ]] || deadline=$((SECONDS + patience)) seen=$id
   fi
+  # before the reboot, a connection shared through ControlMaster skipped this check
+  if [[ $(<"$tmp/ssh") == *"Host key verification failed"* ]]; then
+    cat "$tmp/ssh" >&2
+    fail "$target answers, but ssh refuses its host key"
+  fi
   sleep 10
 done
