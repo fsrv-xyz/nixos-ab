@@ -132,9 +132,11 @@ device unless it runs the image already, and waits for the boot of the update
 to be blessed; if the device falls back to the previous image instead, it says
 so and fails. It gives up once no new boot shows up for 20 minutes, which a
 reboot plus `ab.rollback.timeout` has to stay below. Waiting needs an SSH login
-without a prompt, such as a key in an agent, and a host key that survives the
-reboot, such as the one `new-host` puts on `/state`: the default key in
-`/etc/ssh` is new on every boot.
+without a prompt, such as a key in an agent, and a host key in `known_hosts`
+that survives the reboot, such as the one `new-host` puts on `/state`: the
+default key in `/etc/ssh` is new on every boot. If ssh refuses the key of the
+new boot, `update-host` fails right away; a `ControlMaster` connection hides an
+unknown key until the reboot ends it.
 
 `ab-update` compares the image's root hash with the running image and the UKI
 that boots next, and stops if either matches. Otherwise it numbers the image
