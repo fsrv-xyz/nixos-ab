@@ -35,6 +35,7 @@ sysupdate features used here; the tests run on nixos-26.05 (systemd 260).
 | Option | Default | |
 |---|---|---|
 | `ab.storeSizeMiB` | `2048` | size of each store slot, fixed at install; every image must fit |
+| `ab.storeCompression` | `"lz4hc"` | erofs compression of the store, `null` for none; the kernel must decompress it, NixOS' does lz4 only |
 | `ab.stateSizeMiB` | `null` | size of the [state partition](#state), none if `null`; a larger one grows it |
 | `ab.stateEncryption` | `null` | `"tpm2"`: encrypt the state partition with a key sealed to the TPM |
 | `ab.update.url` | `null` | default source of `ab-update` |

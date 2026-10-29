@@ -48,6 +48,14 @@ in
     default = 2048;
     description = "Size of each store slot in MiB. Every image and every update must fit into it.";
   };
+  options.ab.storeCompression = lib.mkOption {
+    type = lib.types.nullOr lib.types.str;
+    default = "lz4hc";
+    description = ''
+      erofs compression of the store, as systemd-repart's Compression=, or null for none.
+      The kernel must decompress it: NixOS' kernel does lz4 and lz4hc only.
+    '';
+  };
 
   config = {
     assertions = [
@@ -176,6 +184,7 @@ in
           Minimize = "off";
           SplitName = "store";
         }
+        // lib.optionalAttrs (cfg.storeCompression != null) { Compression = cfg.storeCompression; }
         // fixedSize cfg.storeSizeMiB
         // verityBlocks;
         "30-store-verity-b".repartConfig = emptySlot "usr-verity" verityMiB;

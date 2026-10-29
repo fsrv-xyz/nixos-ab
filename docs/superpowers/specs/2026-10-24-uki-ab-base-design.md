@@ -118,6 +118,7 @@ into the image. This repo contains no use case of its own.
 |---|---|---|
 | Form | Flake + NixOS module; consumer owns `nixosSystem` | my call, user ok |
 | Store | erofs + dm-verity via nixpkgs `image.repart.verityStore` | my call, user ok |
+| Store compression | `ab.storeCompression`, default lz4hc: NixOS' kernel config decompresses erofs with lz4 only | user (compression, option), my call (default) |
 | Root | `/` tmpfs; optional `/state` partition, created at first boot | user |
 | Update sources | HTTP pull **and** local directory | user |
 | Initial install | raw image with slot A and an empty slot B | user (replaced "B by repart at first boot") |
