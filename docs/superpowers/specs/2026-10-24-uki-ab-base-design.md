@@ -77,8 +77,8 @@ into the image. This repo contains no use case of its own.
 ## Non-goals (for now)
 
 - Secure Boot, UKI signing, signed `SHA256SUMS` (user: later).
-- Persistent data by default, a var partition, persisted machine-id or logs, encryption
-  of the state partition without a TPM. Tang via clevis was built and dropped again
+- Persistent data by default, a var partition, encryption of the state partition without a
+  TPM. Tang via clevis was built and dropped again
   (user): sops-nix with its key on `/state` installs secrets before sysinit.target, a
   Tang unlock needs the network; revisit once `/state` is mounted in the initrd.
 - aarch64 builds and tests (don't block them gratuitously, don't test them).
@@ -128,6 +128,8 @@ into the image. This repo contains no use case of its own.
 | Image version | none; `ab-update` numbers images on the device | user (replaced a manual `system.image.version`) |
 | nixpkgs | not pinned by nixos-ab; the consumer passes it, `tests/` pins its own | user |
 | Nix on the device | off by default (`nix.enable`): the store is read-only, and Nix brings its registry with a copy of nixpkgs and nixos-rebuild | user |
+| Machine ID | from the firmware (`systemd.machine_id=firmware`), stable per device without state | user |
+| Journal | optional on `/state` (`ab.stateJournal`), so the logs of a rolled back boot survive | user; opt-in my call, it writes to `/state` on every boot |
 | Arch | x86_64 | user |
 
 Consumer view (*my guess at the interface, names open*):

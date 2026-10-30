@@ -2,6 +2,8 @@
 let
   provisionedDisk = import ./provisioned-disk.nix { inherit pkgs; };
   build = n: { environment.etc."ab-build".text = toString n; };
+  # the machine ID systemd takes from the firmware
+  uuid = "a6b8e2c0-5f1d-4e3a-9b7c-1d2e3f405162";
   # 9p hands symlinks to the guest unresolved, so the share needs real files
   artifacts =
     nodes:
@@ -23,10 +25,12 @@ in
     ab.storeSizeMiB = 2048;
     ab.stateSizeMiB = 64;
     ab.stateEncryption = "tpm2";
+    ab.stateJournal = true;
     ab.update.url = "http://127.0.0.1:8080/";
     ab.rollback.timeout = "30s";
     environment.systemPackages = [ pkgs.darkhttpd ];
     virtualisation.tpm.enable = true;
+    virtualisation.qemu.options = [ "-uuid ${uuid}" ];
   };
 
   nodes.v1 =
@@ -225,6 +229,11 @@ in
           v1.wait_until_succeeds("test $(systemctl show -P ExecMainExitTimestampMonotonic ab-rollback.service) -gt 0")
           v1.fail("journalctl -b -u ab-rollback.service | grep 'boot not blessed'")
           assert v1.succeed("${blessBoot} status").strip() == "clean"
+
+      with subtest("the journal on /state keeps the boots that rolled back"):
+          assert v1.succeed("cat /etc/machine-id").strip() == "${lib.replaceStrings [ "-" ] [ "" ] uuid}"
+          rolled_back = v1.succeed("journalctl -u ab-rollback.service -o cat | grep -c 'boot not blessed'")
+          assert rolled_back.strip() == "3", rolled_back
 
       with subtest("after a rollback the next image is numbered above the used-up one"):
           serve("v2")

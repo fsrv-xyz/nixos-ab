@@ -37,6 +37,7 @@ sysupdate features used here; the tests run on nixos-26.05 (systemd 260).
 | `ab.storeSizeMiB` | `2048` | size of each store slot, fixed at install; every image must fit |
 | `ab.storeCompression` | `"lz4hc"` | erofs compression of the store, `null` for none; the kernel must decompress it, NixOS' does lz4 only |
 | `ab.stateSizeMiB` | `null` | size of the [state partition](#state), none if `null`; a larger one grows it |
+| `ab.stateJournal` | `false` | keep the journal on the state partition |
 | `ab.stateEncryption` | `null` | `"tpm2"`: encrypt the state partition with a key sealed to the TPM |
 | `ab.update.url` | `null` | default source of `ab-update` |
 | `ab.rollback.timeout` | `"5min"` | time a counted boot has to reach `boot-complete.target` |
@@ -166,6 +167,13 @@ disk without room for it, such as a VM disk the size of the image, needs to grow
 first. What lives there is up to the image: [`examples/ssh`](examples/ssh) keeps
 its SSH host key there.
 
+`ab.stateJournal = true` keeps the system journal on `/state/journal`, so
+`journalctl -b -1` shows the boot before, one that rolled back included;
+journald keeps it within its defaults, 10% of the partition. Images take the
+machine ID from the firmware (`systemd.machine_id=firmware`), on a PC its
+SMBIOS UUID, so it stays the same across boots and updates, and with it the
+journal's directory.
+
 With `ab.stateEncryption = "tpm2"`, repart creates the partition as LUKS2 with
 its key sealed to PCR 7 of the machine's TPM 2.0, so it unlocks without a
 password on this machine only. A Proxmox VM gets a TPM with
@@ -252,7 +260,7 @@ overlay without a reboot.
 ## Not included
 
 - Secure Boot and signing of UKIs or `SHA256SUMS`; HTTP transfers use `Verify=no`.
-- Encryption of the state partition without a TPM, recovery keys, persisted machine-id and logs.
+- Encryption of the state partition without a TPM, recovery keys.
 
 ## Examples
 

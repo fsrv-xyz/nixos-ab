@@ -1,6 +1,6 @@
 { config, lib, ... }:
 let
-  inherit (config.ab) stateSizeMiB stateEncryption;
+  inherit (config.ab) stateSizeMiB stateEncryption stateJournal;
   tpm2 = stateEncryption == "tpm2";
   # a type of its own: repart assigns existing partitions to definitions by type
   stateType = "17ea15ae-a3ca-484a-b555-4686f3574774";
@@ -19,6 +19,15 @@ in
       description = ''
         Size in MiB of a partition mounted at /state that updates leave alone, or null for none.
         The initrd creates it behind slot B on the first boot of an image that sets it.
+      '';
+    };
+    stateJournal = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Whether to keep the system journal on the state partition, so the logs of earlier boots,
+        rolled back ones included, survive a reboot. journald limits it to its defaults, 10% of
+        the partition.
       '';
     };
     stateEncryption = lib.mkOption {
@@ -86,8 +95,9 @@ in
             UMask = "0077";
           };
           script = ''
-            # the ESP is not encrypted: what lies there must not replace existing state
-            if [ -z "$(find /state -mindepth 1 -maxdepth 1 ! -name lost+found)" ]; then
+            # the ESP is not encrypted: what lies there must not replace existing state; a new one
+            # holds lost+found and, with stateJournal, the journal of this boot
+            if [ -z "$(find /state -mindepth 1 -maxdepth 1 ! -name lost+found ! -name journal)" ]; then
               # not the vfat modes, which mark every file executable
               cp -rT --no-preserve=mode /boot/provision /state
             else
@@ -98,6 +108,26 @@ in
           '';
         };
       }
+      (lib.mkIf stateJournal {
+        fileSystems."/var/log/journal" = {
+          device = "/state/journal";
+          fsType = "none";
+          options = [
+            "bind"
+            "x-systemd.requires=ab-state-journal.service"
+          ];
+          depends = [ "/state" ];
+        };
+        # a bind mount needs its source
+        systemd.services.ab-state-journal = {
+          unitConfig = {
+            DefaultDependencies = false;
+            RequiresMountsFor = [ "/state" ];
+          };
+          serviceConfig.Type = "oneshot";
+          script = "install -d -m 2755 -g systemd-journal /state/journal";
+        };
+      })
       (lib.mkIf tpm2 {
         systemd.repart.partitions."50-state".Encrypt = "tpm2";
         boot.initrd.systemd.repart.extraArgs = [ "--tpm2-pcrs=7" ];
