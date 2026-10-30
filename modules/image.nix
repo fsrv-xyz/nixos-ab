@@ -81,6 +81,10 @@ in
       options = [ "umask=0077" ];
     };
 
+    # the store is read-only, so nix could add nothing to it; enabled, it puts its flake registry,
+    # with a copy of nixpkgs, and nixos-rebuild into the image
+    nix.enable = lib.mkDefault false;
+
     boot.loader.grub.enable = false;
     boot.initrd.systemd.enable = true;
     boot.uki.version = number;
