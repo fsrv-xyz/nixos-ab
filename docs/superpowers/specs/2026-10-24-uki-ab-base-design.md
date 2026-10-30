@@ -127,6 +127,7 @@ into the image. This repo contains no use case of its own.
 | Update trigger | manual only, no timer | user |
 | Image version | none; `ab-update` numbers images on the device | user (replaced a manual `system.image.version`) |
 | nixpkgs | not pinned by nixos-ab; the consumer passes it, `tests/` pins its own | user |
+| Nix on the device | off by default (`nix.enable`): the store is read-only, and Nix brings its registry with a copy of nixpkgs and nixos-rebuild | user |
 | Arch | x86_64 | user |
 
 Consumer view (*my guess at the interface, names open*):

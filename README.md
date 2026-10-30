@@ -43,7 +43,8 @@ sysupdate features used here; the tests run on nixos-26.05 (systemd 260).
 
 Leave `system.image.version` unset: `ab-update` numbers the images on the device.
 `system.stateVersion` follows the release you build with, as `/` does not survive a
-reboot; set it yourself once a service keeps its data on `/state`.
+reboot; set it yourself once a service keeps its data on `/state`. Images come without Nix
+(`nix.enable` defaults to `false`): the store is read-only, so it could not add anything.
 
 ## New host
 
