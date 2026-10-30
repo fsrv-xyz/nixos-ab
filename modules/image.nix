@@ -67,6 +67,10 @@ in
         assertion = version == null;
         message = "ab: leave system.image.version unset: ab-update numbers images on the device, and systemd-boot would order UKIs by an IMAGE_VERSION before their numbers.";
       }
+      {
+        assertion = cfg.stateJournal -> cfg.stateSizeMiB != null;
+        message = "ab: ab.stateJournal needs a state partition, set ab.stateSizeMiB.";
+      }
     ];
 
     fileSystems."/" = {
@@ -84,6 +88,10 @@ in
     # the store is read-only, so nix could add nothing to it; enabled, it puts its flake registry,
     # with a copy of nixpkgs, and nixos-rebuild into the image
     nix.enable = lib.mkDefault false;
+
+    # / is tmpfs: without it every boot gets a random machine ID, and with it a new journal
+    # directory, DHCP DUID and the like
+    boot.kernelParams = [ "systemd.machine_id=firmware" ];
 
     boot.loader.grub.enable = false;
     boot.initrd.systemd.enable = true;
