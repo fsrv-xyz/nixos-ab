@@ -19,6 +19,9 @@ in
   };
 
   config = {
+    # ab-update switch gives its health check the time a boot has
+    environment.etc."ab-update/rollback-timeout".text = cfg.timeout;
+
     systemd.additionalUpstreamSystemUnits = [ "systemd-boot-check-no-failures.service" ];
     systemd.services.systemd-boot-check-no-failures.requiredBy = [ "boot-complete.target" ];
 

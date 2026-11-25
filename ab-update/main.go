@@ -1,5 +1,6 @@
 // ab-update installs an image into the slot not running, numbered one above every UKI of the
-// image on the ESP, and leaves the work to systemd-sysupdate.
+// image on the ESP, and leaves the work to systemd-sysupdate. Its switch activates that image
+// in the running system.
 package main
 
 import (
@@ -18,10 +19,16 @@ import (
 	"strings"
 )
 
-// Set at link time to the system's systemd.
+// Set at link time to the system's programs.
 var (
-	bootctl   = "bootctl"
-	sysupdate = "systemd-sysupdate"
+	bootctl     = "bootctl"
+	sysupdate   = "systemd-sysupdate"
+	veritysetup = "systemd-veritysetup"
+	blessBoot   = "systemd-bless-boot"
+	systemctl   = "systemctl"
+	systemdRun  = "systemd-run"
+	udevadm     = "udevadm"
+	cp          = "cp"
 )
 
 var rootHash = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -31,7 +38,7 @@ func main() {
 	log.SetPrefix("ab-update: ")
 	templates := flag.String("definitions", "/etc/ab-update", "`directory` of the transfer definition templates and the default source, url")
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "usage: ab-update [-definitions directory] [directory | URL | vacuum]\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "usage: ab-update [-definitions directory] [directory | URL | vacuum | switch]\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -65,6 +72,10 @@ func run(templates, arg string) error {
 	entries, err := parseEntries(id, list)
 	if err != nil {
 		return err
+	}
+
+	if arg == "switch" {
+		return switchSystem(templates, id, entries)
 	}
 
 	if arg == "vacuum" {
