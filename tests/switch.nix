@@ -259,6 +259,15 @@ in
           assert boot_id() == boot and build() == "b"
           v1.succeed("journalctl -t ab-update | grep 'next reboot'")
 
+      with subtest("a switch that waits for a confirmation is undone without one"):
+          assert "no switch awaits a confirmation" in v1.fail("ab-update confirm 2>&1")
+          n = install("a")
+          out = v1.fail("ab-update -confirm switch 2>&1")
+          assert "no ab-update confirm within 30s" in out, out
+          assert boot_id() == boot and build() == "b"
+          v1.succeed(f"test -f /boot/EFI/Linux/ab_{n}+0-3.efi")
+          v1.fail("test -e /run/ab-update/confirm")
+
       with subtest("a failed health check returns to the system before and uses the image up"):
           n = install("bad")
           out = v1.fail("ab-update switch 2>&1")
@@ -302,7 +311,14 @@ in
           assert boot_id() == boot and build() == "1"
           assert v1.succeed("cat /run/ab-update/live").strip() == usrhash("v1")
           n = install("b")
-          v1.succeed("ab-update switch")
+          # what update-host does over logins of its own
+          v1.succeed(
+              "systemd-run --unit=confirmer --setenv=PATH=/run/current-system/sw/bin"
+              " /bin/sh -c 'until ab-update confirm; do sleep 1; done'"
+          )
+          v1.succeed("ab-update -confirm switch")
+          assert build() == "b"
+          v1.fail("systemctl is-active confirmer")
 
       with subtest("a reboot starts the image that was switched to"):
           v1.reboot()

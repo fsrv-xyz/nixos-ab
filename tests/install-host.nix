@@ -37,6 +37,8 @@ let
         }
       ];
       systemd.services.sshd-keygen.unitConfig.RequiresMountsFor = [ "/state" ];
+      # lets a test replace what the shell of an SSH command finds
+      environment.shellInit = "[ ! -e /run/test-hook ] || . /run/test-hook";
     };
 in
 {
@@ -53,6 +55,7 @@ in
         nodes.device.system.build.release
         nodes.updated.system.build.update
         nodes.switched.system.build.update
+        nodes.cut.system.build.update
       ];
     };
   nodes.rescue = {
@@ -78,6 +81,12 @@ in
     imports = [ device ];
     environment.etc.generation.text = "switched";
   };
+  # never started: a switch to its image keeps the SSH connections it finds and lets no new one in
+  nodes.cut = {
+    imports = [ device ];
+    environment.etc.generation.text = "cut";
+    services.openssh.openFirewall = false;
+  };
 
   testScript =
     { nodes, ... }:
@@ -85,6 +94,7 @@ in
       inherit (nodes.device.system.build) diskImage;
       inherit (nodes.updated.system.build) update;
       switched = nodes.switched.system.build.update;
+      cut = nodes.cut.system.build.update;
       closure = pkgs.closureInfo {
         rootPaths = [
           diskImage
@@ -172,6 +182,25 @@ in
           assert "boots next" in out and "without a reboot" in out, out
           assert client.succeed("ssh root@rescue cat /etc/generation") == "switched"
           assert boot_id() == boot
+
+      def hook(script):
+          client.succeed(f"ssh root@rescue 'cat > /run/test-hook' <<'EOF'\n{script}\nEOF")
+
+      with subtest("update-host --switch installs nothing on a device whose ab-update knows no -confirm"):
+          hook('ab-update() { echo "$*" >> /run/calls; echo "usage: ab-update [directory | URL | vacuum | switch]" >&2; }')
+          out = client.fail("update-host --switch root@rescue ${cut} 2>&1")
+          assert "knows no -confirm" in out, out
+          assert device.succeed("cat /run/calls") == "-h\n"
+          device.succeed("rm /run/test-hook")
+
+      with subtest("update-host --switch returns from an update that lets no new login in"):
+          # a poll let in before the switch closes the port, served once the switch waits: it must not confirm
+          hook('case $BASH_EXECUTION_STRING in *"is-active ab-update-switch"*) sleep 60 ;; esac')
+          out = client.fail("update-host --switch root@rescue ${cut} 2>&1", timeout=900)
+          assert "no ab-update confirm" in out and "did not switch to this image" in out, out
+          assert client.succeed("ssh root@rescue cat /etc/generation") == "switched"
+          assert boot_id() == boot
+          device.succeed("rm /run/test-hook")
 
       with subtest("update-host --reboot boots a device into the image it switched to"):
           out = client.succeed("update-host --reboot root@rescue ${switched} 2>&1", timeout=900)

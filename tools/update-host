@@ -28,6 +28,12 @@ target=$1 update=${2:-result}
 (cd "$update" && sha256sum --check --quiet --strict SHA256SUMS) || fail "$update does not match its SHA256SUMS"
 usrhash=$(<"$update/usrhash")
 
+if [[ -n $switch ]]; then
+  # before the update is installed: a reboot would start it, switched to or not
+  help=$(ssh -n "$target" 'ab-update -h 2>&1 || :') || fail "$target: no answer"
+  [[ $help == *-confirm* ]] || fail "$target: its ab-update knows no -confirm, update it with --reboot first"
+fi
+
 tmp=$(mktemp -d)
 trap 'rm -r "$tmp"' EXIT
 # port 0: a free port, so no other server on 127.0.0.1 can answer ab-update
@@ -45,20 +51,27 @@ probe='booted=$(sed -n "s/.*usrhash=\([0-9a-f]*\).*/\1/p" /proc/cmdline); echo "
 read -r previous booted live _ < <(ssh -n "$target" "$probe") || fail "$target: no answer"
 
 if [[ -n $switch ]]; then
-  # the device has the last word, asked anew: the switch may cut this connection
-  ssh -n -o ServerAliveInterval=10 "$target" ab-update switch || :
+  # in the background: the switch waits for the confirmation below, and may cut this connection
+  ssh -n -o ServerAliveInterval=10 "$target" ab-update -confirm switch &
+  switching=$!
+  trap 'kill "$switching" 2>/dev/null || :; kill "$(<"$tmp/server")"; rm -r "$tmp"' EXIT
   deadline=$((SECONDS + 1200))
   while :; do
-    # the unit first: once it is gone, the image read after it is the final one
-    if { read -r state && read -r id _ live _; } < <(ssh -n -o BatchMode=yes -o ConnectTimeout=5 -o ServerAliveInterval=10 \
-      "$target" "systemctl is-active ab-update-switch.service; $probe" 2>"$tmp/ssh"); then
+    # whether the switch waits, then the unit: once that is gone, the image read after it is the final one
+    if { read -r waits && read -r state && read -r id _ live _; } < <(ssh -n -o BatchMode=yes -o ConnectTimeout=5 -o ServerAliveInterval=10 \
+      "$target" "test -p /run/ab-update/confirm; echo \$?; systemctl is-active ab-update-switch.service; $probe" 2>"$tmp/ssh"); then
       [[ $id == "$previous" ]] || fail "$target rebooted instead of switching"
+      # a login opened now that the switch waits, and not multiplexed: one from before the activation shows nothing
+      [[ $waits != 0 ]] || ssh -n -o ControlPath=none -o BatchMode=yes -o ConnectTimeout=5 -o ServerAliveInterval=10 "$target" ab-update confirm 2>/dev/null || :
       case $state in
       active | activating) ;;
       *)
-        [[ $live == "$usrhash" ]] || fail "$target did not switch to this image"
-        echo "update-host: $target runs this image, without a reboot"
-        exit 0
+        # the unit is inactive before the switch starts too: final once its connection has ended
+        if ! kill -0 "$switching" 2>/dev/null; then
+          [[ $live == "$usrhash" ]] || fail "$target did not switch to this image"
+          echo "update-host: $target runs this image, without a reboot"
+          exit 0
+        fi
         ;;
       esac
     fi

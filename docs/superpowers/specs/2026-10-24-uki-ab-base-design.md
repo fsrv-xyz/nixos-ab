@@ -288,3 +288,32 @@ One VM, ≤ 1 GiB RAM, small deltas:
 16. `update-host --switch` fails when the device reboots during the switch, also into the
     update; `update-host --reboot` reboots a device into the image it switched to, and one
     that switched away from the image it booted back into that.
+
+## Switch confirmation (2026-11-25)
+
+### Intent
+
+A switch that cuts the management access passes the health check when the interface stays
+up, with a wrong address, route or firewall rule, and its image boots next: the device is
+out of reach until someone stands in front of it (user). The admin's machine confirms the
+switch, as only a new login from there shows that it still gets in.
+
+### Decided how
+
+| Topic | Decision | By |
+|---|---|---|
+| Interface | `ab-update -confirm switch` waits, `ab-update confirm` ends the wait and fails while none waits; plain `ab-update switch` is unchanged | my call |
+| Window | after the health check, another `ab.rollback.timeout`: the time a boot has, no option of its own | my call |
+| Signal | a fifo below `/run/ab-update` that `cat` reads under `timed`, which keeps systemd's time spans; `confirm` opens it for writing without blocking, which fails while nothing reads it, so a confirmation sent before the switch is live does not count | my call |
+| Without confirmation | the undo of a failed health check: the system before, the image used-up | my call |
+| update-host | `--switch` always confirms: the switch runs in a background session; a poll that finds it waiting is followed by a login of its own (`ControlPath=none`) that runs `ab-update confirm`, as a login from before the activation shows nothing; the answer is final once the unit and that session have ended. It asks `ab-update -h` for `-confirm` before it installs: a refused switch leaves an image that a reboot starts | my call |
+
+### Success = the VM tests pass, with these added
+
+17. Without `ab-update confirm` a switch with `-confirm` is undone after the window, its
+    image used-up; with it, the switch stays.
+18. `update-host --switch` to an image that closes the SSH port for new connections: the
+    device returns to the system before, and `update-host` fails, also when the device
+    serves a login from before the switch only once it waits.
+19. `update-host --switch` installs nothing on a device whose `ab-update` knows no
+    `-confirm`.

@@ -70,6 +70,7 @@ let
       "-X main.systemdRun=${config.systemd.package}/bin/systemd-run"
       "-X main.udevadm=${config.systemd.package}/bin/udevadm"
       "-X main.cp=${pkgs.coreutils}/bin/cp"
+      "-X main.cat=${pkgs.coreutils}/bin/cat"
     ];
     meta.mainProgram = "ab-update";
   };

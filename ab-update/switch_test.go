@@ -4,7 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func TestPartUUIDs(t *testing.T) {
@@ -97,5 +99,29 @@ func TestBlessed(t *testing.T) {
 		if blessed(status) != want {
 			t.Errorf("blessed(%q) = %v", status, !want)
 		}
+	}
+}
+
+func TestConfirm(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "confirm")
+	if confirm(path) == nil {
+		t.Fatal("no fifo: want an error")
+	}
+	if err := syscall.Mkfifo(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if confirm(path) == nil {
+		t.Fatal("no reader: want an error")
+	}
+	read := make(chan error)
+	go func() {
+		_, err := os.ReadFile(path)
+		read <- err
+	}()
+	for confirm(path) != nil {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := <-read; err != nil {
+		t.Fatal(err)
 	}
 }
