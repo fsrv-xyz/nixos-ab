@@ -183,6 +183,11 @@ active. If either fails, `ab-update` activates the system that ran before and
 marks the image used-up, as three failed boots would, so no reboot starts it. If that system fails the check as
 well, the device reboots into the image it booted from.
 
+The check runs in a system that is up already, where an order after targets
+such as `network-online.target` holds nothing back: a unit has to wait itself
+for what it tests, as `systemd-networkd-wait-online` does. One that looks once,
+right after the switch restarted the network, fails the switch.
+
 `ab-update switch` refuses, and leaves the image staged, while the boot is not
 blessed yet, while `ab-overlay` is active, and while the running system fails
 the health check already.

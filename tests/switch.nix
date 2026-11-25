@@ -11,6 +11,7 @@ let
       mkdir $out
       ${lib.concatMapStrings (n: "cp -rL ${nodes.${n}.system.build.release}/update $out/${n}\n") [
         "v1"
+        "same"
         "big"
         "a"
         "b"
@@ -61,6 +62,11 @@ in
         "-virtfs local,path=${artifacts nodes},mount_tag=artifacts,security_model=none,readonly=on"
       ];
     };
+  # the system of v1 with one more store path: the same toplevel under another root hash
+  nodes.same = {
+    imports = [ (build "1") ];
+    image.repart.partitions."20-store".storePaths = [ pkgs.hello ];
+  };
   nodes.big = {
     imports = [ (build "big") ];
     environment.etc.big.source = pkgs.runCommand "big" { } "truncate -s 512M $out";
@@ -75,6 +81,14 @@ in
   nodes.b = {
     imports = [ (build "b") ];
     boot.kernelParams = [ "quiet" ];
+    # holds a switch to this image open, long enough to kill its caller
+    systemd.services.slow = {
+      wantedBy = [ "multi-user.target" ];
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = "${pkgs.coreutils}/bin/sleep 3";
+      };
+    };
   };
   nodes.bad = {
     imports = [ (build "bad") ];
@@ -160,6 +174,11 @@ in
       with subtest("nothing staged, nothing to switch"):
           assert "ab_1 is active already" in v1.succeed("ab-update switch 2>&1")
 
+      with subtest("an image with the running system in another store needs no activation"):
+          n = install("same")
+          assert f"ab_{n} is active already" in v1.succeed("ab-update switch 2>&1")
+          assert v1.succeed("cat /run/ab-update/live").strip() == usrhash("same")
+
       with subtest("ab-overlay blocks a switch"):
           n = install("big")
           v1.succeed("ab-overlay")
@@ -212,9 +231,8 @@ in
       with subtest("a switch outlives the caller, and a second one fits into the boot"):
           n = install("b")
           v1.succeed("systemd-run --collect --unit=caller /bin/sh -c '/run/current-system/sw/bin/ab-update switch 2>&1 | /run/current-system/sw/bin/cat'")
-          # or done already: the unit is gone once the switch ends
-          v1.wait_until_succeeds("systemctl is-active ab-update-switch.service || test \"$(cat /etc/ab-build)\" = b")
-          v1.execute("systemctl kill --signal=KILL caller")
+          v1.wait_until_succeeds("systemctl is-active ab-update-switch.service")
+          v1.succeed("systemctl kill --signal=KILL caller")
           v1.wait_until_fails("systemctl is-active ab-update-switch.service")
           assert boot_id() == boot and build() == "b"
           v1.succeed("journalctl -t ab-update | grep 'next reboot'")

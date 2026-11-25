@@ -179,7 +179,7 @@ func switchSystem(templates, id string, entries []entry) error {
 	}
 	if before == toplevel {
 		log.Printf("%s is active already", name)
-		return nil
+		return runs(target.UsrHash)
 	}
 
 	status, err := exec.Command(blessBoot, "status").Output()
@@ -227,7 +227,7 @@ func switchSystem(templates, id string, entries []entry) error {
 		return undo(id, entries, target, before, timeout, err)
 	}
 
-	if err := os.WriteFile(liveFile, []byte(target.UsrHash+"\n"), 0o644); err != nil {
+	if err := runs(target.UsrHash); err != nil {
 		return err
 	}
 	log.Printf("%s is active", name)
@@ -235,6 +235,14 @@ func switchSystem(templates, id string, entries []entry) error {
 		log.Print("kernel, initrd or kernel command line changed: they take effect at the next reboot")
 	}
 	return nil
+}
+
+// runs records the image the running system is, for update-host to ask the device.
+func runs(hash string) error {
+	if err := os.MkdirAll(runDir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(liveFile, []byte(hash+"\n"), 0o644)
 }
 
 // activate gives switch-to-configuration the time a boot has: it waits for the units it starts
@@ -350,14 +358,22 @@ func stage(id string, e entry) error {
 	if err := command(veritysetup, "attach", mapping, "/dev/disk/by-partuuid/"+data, "/dev/disk/by-partuuid/"+verity, e.UsrHash); err != nil {
 		return fmt.Errorf("systemd-veritysetup attach: %w", err)
 	}
-	defer exec.Command(veritysetup, "detach", mapping).Run()
+	defer func() {
+		if err := exec.Command(veritysetup, "detach", mapping).Run(); err != nil {
+			log.Printf("the slot of %s_%d stays mapped: %v", id, e.Number, err)
+		}
+	}()
 	if err := os.MkdirAll(slotDir, 0o700); err != nil {
 		return err
 	}
 	if err := syscall.Mount("/dev/mapper/"+mapping, slotDir, "erofs", syscall.MS_RDONLY, ""); err != nil {
 		return fmt.Errorf("mount %s_%d: %w", id, e.Number, err)
 	}
-	defer syscall.Unmount(slotDir, 0)
+	defer func() {
+		if err := syscall.Unmount(slotDir, 0); err != nil {
+			log.Printf("the slot of %s_%d stays mounted: %v", id, e.Number, err)
+		}
+	}()
 
 	slotStore := filepath.Join(slotDir, store)
 	next, err := names(slotStore)
