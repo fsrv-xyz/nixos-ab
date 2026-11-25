@@ -141,6 +141,11 @@ default key in `/etc/ssh` is new on every boot. If ssh refuses the key of the
 new boot, `update-host` fails right away; a `ControlMaster` connection hides an
 unknown key until the reboot ends it.
 
+With `--switch` instead, it runs [`ab-update switch`](#without-a-reboot) on the
+device and then asks it which image is running, anew, as the switch may cut the
+connection. It fails if that is not the update: the device refused the switch,
+returned from it or rebooted.
+
 `ab-update` compares the image's root hash with the running image and the UKI
 that boots next, and stops if either matches. Otherwise it numbers the image
 one above every UKI of the image on the ESP, a used-up one included, and hands
@@ -326,6 +331,7 @@ that fails its health check and reboots when that return fails too. A third VM
 provisions a file into a plain state partition. `new-host` runs with throwaway
 keys and checks who can decrypt what. `install-host` writes a host to the disk
 of a rescue VM, which then boots it as the host, and `update-host` updates it
-and waits for the blessed boot of the update. Evaluation checks cover the
+and waits for the blessed boot of the update, then switches it to another one
+within that boot. Evaluation checks cover the
 `system.image.version` assertion, the `system.stateVersion` default and
 `lib.hosts`.

@@ -27,6 +27,8 @@ let
           }
         ];
       };
+      # test nodes leave switch-to-configuration out
+      system.switch.enable = true;
       ab.stateSizeMiB = 64;
       services.openssh.hostKeys = [
         {
@@ -39,7 +41,7 @@ let
 in
 {
   name = "install-host";
-  globalTimeout = 1200;
+  globalTimeout = 1800;
 
   nodes.client =
     { nodes, ... }:
@@ -50,6 +52,7 @@ in
       virtualisation.additionalPaths = [
         nodes.device.system.build.release
         nodes.updated.system.build.update
+        nodes.switched.system.build.update
       ];
     };
   nodes.rescue = {
@@ -70,12 +73,18 @@ in
     imports = [ device ];
     environment.etc.generation.text = "update";
   };
+  # never started: its image is the update device switches to
+  nodes.switched = {
+    imports = [ device ];
+    environment.etc.generation.text = "switched";
+  };
 
   testScript =
     { nodes, ... }:
     let
       inherit (nodes.device.system.build) diskImage;
       inherit (nodes.updated.system.build) update;
+      switched = nodes.switched.system.build.update;
       closure = pkgs.closureInfo {
         rootPaths = [
           diskImage
@@ -145,5 +154,23 @@ in
 
       with subtest("update-host does not reboot into the image already running"):
           assert "runs this image already" in update()
+
+      def boot_id():
+          return device.succeed("cat /proc/sys/kernel/random/boot_id")
+
+      with subtest("update-host --switch fails when the device refuses the switch"):
+          boot = boot_id()
+          device.succeed("systemd-run --unit=stale /run/current-system/sw/bin/false")
+          device.wait_until_succeeds("systemctl is-failed stale")
+          out = client.fail("update-host --switch root@rescue ${switched} 2>&1")
+          assert "fails its health check" in out, out
+          assert client.succeed("ssh root@rescue cat /etc/generation") == "update"
+          device.succeed("systemctl reset-failed stale")
+
+      with subtest("update-host --switch activates an update within the boot"):
+          out = client.succeed("update-host --switch root@rescue ${switched} 2>&1", timeout=900)
+          assert "boots next" in out and "without a reboot" in out, out
+          assert client.succeed("ssh root@rescue cat /etc/generation") == "switched"
+          assert boot_id() == boot
     '';
 }

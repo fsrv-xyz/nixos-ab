@@ -1,21 +1,27 @@
 #!/usr/bin/env bash
-# update-host [--reboot] <ssh target> [update]: installs an update (default ./result, or the
-# update/ of a release) on a running host with ab-update, served over the SSH connection
+# update-host [--reboot | --switch] <ssh target> [update]: installs an update (default ./result,
+# or the update/ of a release) on a running host with ab-update, served over the SSH connection
 set -euo pipefail
 
 fail() {
   echo "update-host: $*" >&2
   exit 1
 }
-reboot=
-if [[ ${1-} == --reboot ]]; then
-  reboot=1
-  shift
-fi
-if (($# < 1 || $# > 2)); then
-  echo "usage: update-host [--reboot] ssh-target [update]" >&2
+usage() {
+  echo "usage: update-host [--reboot | --switch] ssh-target [update]" >&2
   exit 2
-fi
+}
+reboot='' switch=''
+while [[ ${1-} == --* ]]; do
+  case $1 in
+  --reboot) reboot=1 ;;
+  --switch) switch=1 ;;
+  *) usage ;;
+  esac
+  shift
+done
+[[ -z $reboot || -z $switch ]] || usage
+(($# == 1 || $# == 2)) || usage
 target=$1 update=${2:-result}
 [[ ! -e $update/update ]] || update=$update/update
 [[ -e $update/SHA256SUMS ]] || fail "$update holds no update: nix build .#<name>.update"
@@ -29,7 +35,31 @@ port=$(darkhttpd "$update" --addr 127.0.0.1 --port 0 --daemon --pidfile "$tmp/se
   sed -n 's|^listening on: http://127.0.0.1:\([0-9]*\)/$|\1|p')
 trap 'kill "$(<"$tmp/server")"; rm -r "$tmp"' EXIT
 ssh -o ExitOnForwardFailure=yes -R "$port:127.0.0.1:$port" "$target" ab-update "http://127.0.0.1:$port/"
-[[ -n $reboot ]] || exit 0
+[[ -n $reboot || -n $switch ]] || exit 0
+
+if [[ -n $switch ]]; then
+  # the device has the last word, asked anew: the switch may cut this connection
+  ssh -n "$target" ab-update switch || :
+  live='echo "$(systemctl is-active ab-update-switch.service)" "$(cat /run/ab-update/live 2>/dev/null || sed -n "s/.*usrhash=\([0-9a-f]*\).*/\1/p" /proc/cmdline)"'
+  deadline=$((SECONDS + 1200))
+  while :; do
+    if read -r state running < <(ssh -n -o BatchMode=yes -o ConnectTimeout=5 -o ServerAliveInterval=10 "$target" "$live" 2>"$tmp/ssh"); then
+      case $state in
+      active | activating) ;;
+      *)
+        [[ $running == "$usrhash" ]] || fail "$target did not switch to this image"
+        echo "update-host: $target runs this image, without a reboot"
+        exit 0
+        ;;
+      esac
+    fi
+    if ((SECONDS >= deadline)); then
+      cat "$tmp/ssh" >&2
+      fail "$target: no answer for 20 minutes"
+    fi
+    sleep 5
+  done
+fi
 
 probe='echo "$(</proc/sys/kernel/random/boot_id)" "$(sed -n "s/.*usrhash=\([0-9a-f]*\).*/\1/p" /proc/cmdline)" \
   "$(/run/current-system/systemd/lib/systemd/systemd-bless-boot status)" \
