@@ -377,7 +377,9 @@ func healthy(timeout string) error {
 		}
 	}
 	if len(oneshots) > 0 {
-		if err := timed(timeout, append([]string{systemctl, "restart"}, oneshots...)...); err != nil {
+		// without what requires them: a restart goes on to an active boot-complete.target, whose start
+		// starts the other oneshots, and the restart of each then ends that run with a signal
+		if err := timed(timeout, append([]string{systemctl, "restart", "--job-mode=ignore-requirements"}, oneshots...)...); err != nil {
 			// a probe must not leave the system degraded
 			exec.Command(systemctl, append([]string{"reset-failed"}, oneshots...)...).Run()
 			return fmt.Errorf("%s: %w", strings.Join(oneshots, " "), err)

@@ -4,6 +4,13 @@ let
   build = name: { environment.etc."ab-build".text = name; };
   # the machine ID systemd takes from the firmware: without one the journal of the boot before is another machine's
   uuid = "a6b8e2c0-5f1d-4e3a-9b7c-1d2e3f405162";
+  # fails after a run of it that was cut short
+  whole = name: {
+    requiredBy = [ "boot-complete.target" ];
+    before = [ "boot-complete.target" ];
+    serviceConfig.Type = "oneshot";
+    script = "mkdir /run/${name}; sleep 1; rmdir /run/${name}";
+  };
   # 9p hands symlinks to the guest unresolved, so the share needs real files
   artifacts =
     nodes:
@@ -53,6 +60,9 @@ in
         ExecStart = "${pkgs.coreutils}/bin/test ! -e /run/poison";
       };
     };
+    # two, as a health check that restarts one must not cut the run of the other short
+    systemd.services.whole-a = whole "whole-a";
+    systemd.services.whole-b = whole "whole-b";
   };
 
   nodes.v1 =
