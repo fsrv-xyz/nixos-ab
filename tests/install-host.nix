@@ -53,6 +53,7 @@ in
         nodes.device.system.build.release
         nodes.updated.system.build.update
         nodes.switched.system.build.update
+        nodes.cut.system.build.update
       ];
     };
   nodes.rescue = {
@@ -78,6 +79,12 @@ in
     imports = [ device ];
     environment.etc.generation.text = "switched";
   };
+  # never started: a switch to its image keeps the SSH connections it finds and lets no new one in
+  nodes.cut = {
+    imports = [ device ];
+    environment.etc.generation.text = "cut";
+    services.openssh.openFirewall = false;
+  };
 
   testScript =
     { nodes, ... }:
@@ -85,6 +92,7 @@ in
       inherit (nodes.device.system.build) diskImage;
       inherit (nodes.updated.system.build) update;
       switched = nodes.switched.system.build.update;
+      cut = nodes.cut.system.build.update;
       closure = pkgs.closureInfo {
         rootPaths = [
           diskImage
@@ -170,6 +178,12 @@ in
       with subtest("update-host --switch activates an update within the boot"):
           out = client.succeed("update-host --switch root@rescue ${switched} 2>&1", timeout=900)
           assert "boots next" in out and "without a reboot" in out, out
+          assert client.succeed("ssh root@rescue cat /etc/generation") == "switched"
+          assert boot_id() == boot
+
+      with subtest("update-host --switch returns from an update that lets no new login in"):
+          out = client.fail("update-host --switch root@rescue ${cut} 2>&1", timeout=900)
+          assert "no ab-update confirm" in out and "did not switch to this image" in out, out
           assert client.succeed("ssh root@rescue cat /etc/generation") == "switched"
           assert boot_id() == boot
 

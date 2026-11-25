@@ -26,6 +26,7 @@ const (
 	slotDir   = runDir + "/slot"
 	deltaDir  = runDir + "/store"
 	liveFile  = runDir + "/live"
+	fifo      = runDir + "/confirm"
 )
 
 // partUUIDs gives the UUIDs of an image's store and verity partitions: the halves of its root hash.
@@ -152,7 +153,7 @@ func command(name string, args ...string) error {
 }
 
 // switchSystem makes the running system the image that boots next.
-func switchSystem(templates, id string, entries []entry) error {
+func switchSystem(templates, id string, entries []entry, confirmed bool) error {
 	signal.Ignore(syscall.SIGPIPE)
 	if journal, err := syslog.New(syslog.LOG_NOTICE, "ab-update"); err == nil {
 		out.journal = journal
@@ -220,6 +221,9 @@ func switchSystem(templates, id string, entries []entry) error {
 	if err == nil {
 		err = healthy(timeout)
 	}
+	if err == nil && confirmed {
+		err = awaitConfirmation(timeout)
+	}
 	if err != nil {
 		return undo(id, entries, target, before, timeout, err)
 	}
@@ -232,6 +236,35 @@ func switchSystem(templates, id string, entries []entry) error {
 		log.Print("kernel, initrd or kernel command line changed: they take effect at the next reboot")
 	}
 	return nil
+}
+
+// awaitConfirmation waits for ab-update confirm, which a login has to run that the switched system still lets in.
+func awaitConfirmation(timeout string) error {
+	if err := os.MkdirAll(runDir, 0o755); err != nil {
+		return err
+	}
+	os.Remove(fifo)
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		return err
+	}
+	defer os.Remove(fifo)
+	log.Printf("waiting %s for ab-update confirm", timeout)
+	if err := timed(timeout, cat, fifo); err != nil {
+		return fmt.Errorf("no ab-update confirm within %s", timeout)
+	}
+	return nil
+}
+
+// confirm ends the wait of a switch: a fifo opens for writing only while it is read, so it fails when none waits.
+func confirm(path string) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|syscall.O_NONBLOCK, 0)
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENXIO) {
+		return errors.New("no switch awaits a confirmation")
+	}
+	if err != nil {
+		return err
+	}
+	return f.Close()
 }
 
 // runs records the image the running system is, for update-host to ask the device.
@@ -298,13 +331,17 @@ func undo(id string, entries []entry, target entry, before, timeout string, caus
 }
 
 // inTransientUnit runs the switch outside the caller's session, which the switch may end.
-func inTransientUnit(templates string) error {
+func inTransientUnit(templates string, confirmed bool) error {
 	self, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(systemdRun, "--unit="+switchUnit, "--wait", "--pipe", "--collect", "--quiet",
-		"--setenv="+inUnit+"=1", self, "-definitions", templates, "switch")
+	args := []string{"--unit=" + switchUnit, "--wait", "--pipe", "--collect", "--quiet",
+		"--setenv=" + inUnit + "=1", self, "-definitions", templates}
+	if confirmed {
+		args = append(args, "-confirm")
+	}
+	cmd := exec.Command(systemdRun, append(args, "switch")...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	err = cmd.Run()
 	var exit *exec.ExitError

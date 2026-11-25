@@ -45,20 +45,27 @@ probe='booted=$(sed -n "s/.*usrhash=\([0-9a-f]*\).*/\1/p" /proc/cmdline); echo "
 read -r previous booted live _ < <(ssh -n "$target" "$probe") || fail "$target: no answer"
 
 if [[ -n $switch ]]; then
-  # the device has the last word, asked anew: the switch may cut this connection
-  ssh -n -o ServerAliveInterval=10 "$target" ab-update switch || :
+  # in the background: the switch waits for the confirmation below, and may cut this connection
+  ssh -n -o ServerAliveInterval=10 "$target" ab-update -confirm switch &
+  switching=$!
+  trap 'kill "$switching" 2>/dev/null || :; kill "$(<"$tmp/server")"; rm -r "$tmp"' EXIT
   deadline=$((SECONDS + 1200))
   while :; do
-    # the unit first: once it is gone, the image read after it is the final one
-    if { read -r state && read -r id _ live _; } < <(ssh -n -o BatchMode=yes -o ConnectTimeout=5 -o ServerAliveInterval=10 \
-      "$target" "systemctl is-active ab-update-switch.service; $probe" 2>"$tmp/ssh"); then
+    # a login of its own confirms, not one multiplexed over a connection from before the switch;
+    # the unit next: once it is gone, the image read after it is the final one
+    if { read -r state && read -r id _ live _; } < <(ssh -n -o ControlPath=none -o BatchMode=yes -o ConnectTimeout=5 \
+      -o ServerAliveInterval=10 "$target" "ab-update confirm 2>/dev/null; systemctl is-active ab-update-switch.service; $probe" \
+      2>"$tmp/ssh"); then
       [[ $id == "$previous" ]] || fail "$target rebooted instead of switching"
       case $state in
       active | activating) ;;
       *)
-        [[ $live == "$usrhash" ]] || fail "$target did not switch to this image"
-        echo "update-host: $target runs this image, without a reboot"
-        exit 0
+        # the unit is inactive before the switch starts too: final once its connection has ended
+        if ! kill -0 "$switching" 2>/dev/null; then
+          [[ $live == "$usrhash" ]] || fail "$target did not switch to this image"
+          echo "update-host: $target runs this image, without a reboot"
+          exit 0
+        fi
         ;;
       esac
     fi

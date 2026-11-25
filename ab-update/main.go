@@ -30,6 +30,7 @@ var (
 	systemdRun  = "systemd-run"
 	udevadm     = "udevadm"
 	cp          = "cp"
+	cat         = "cat"
 )
 
 var rootHash = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -38,8 +39,9 @@ func main() {
 	log.SetFlags(0)
 	log.SetPrefix("ab-update: ")
 	templates := flag.String("definitions", "/etc/ab-update", "`directory` of the transfer definition templates and the default source, url")
+	confirmed := flag.Bool("confirm", false, "with switch: undo it unless ab-update confirm runs within ab.rollback.timeout of its health check")
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "usage: ab-update [-definitions directory] [directory | URL | vacuum | switch]\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "usage: ab-update [-definitions directory] [-confirm] [directory | URL | vacuum | switch | confirm]\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -47,14 +49,18 @@ func main() {
 		flag.Usage()
 		os.Exit(2)
 	}
-	if err := run(*templates, flag.Arg(0)); err != nil {
+	if err := run(*templates, flag.Arg(0), *confirmed); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(templates, arg string) error {
+func run(templates, arg string, confirmed bool) error {
+	// before the lock, which the switch it confirms holds
+	if arg == "confirm" {
+		return confirm(fifo)
+	}
 	if arg == "switch" && os.Getenv(inUnit) == "" {
-		return inTransientUnit(templates)
+		return inTransientUnit(templates, confirmed)
 	}
 	if err := lock(); err != nil {
 		return err
@@ -82,7 +88,7 @@ func run(templates, arg string) error {
 	}
 
 	if arg == "switch" {
-		return switchSystem(templates, id, entries)
+		return switchSystem(templates, id, entries, confirmed)
 	}
 
 	if arg == "vacuum" {
