@@ -153,9 +153,6 @@ func command(name string, args ...string) error {
 
 // switchSystem makes the running system the image that boots next.
 func switchSystem(templates, id string, entries []entry) error {
-	if os.Getenv(inUnit) == "" {
-		return inTransientUnit(templates)
-	}
 	signal.Ignore(syscall.SIGPIPE)
 	if journal, err := syslog.New(syslog.LOG_NOTICE, "ab-update"); err == nil {
 		out.journal = journal
@@ -212,10 +209,10 @@ func switchSystem(templates, id string, entries []entry) error {
 	}
 	// check first: a missing or unwilling switch-to-configuration is no failure of the image
 	program := filepath.Join(toplevel, "bin/switch-to-configuration")
-	if err := command(program, "check"); err != nil {
+	if err := timed(timeout, program, "check"); err != nil {
 		return fmt.Errorf("%s check: %w", program, err)
 	}
-	err = activate(program, timeout)
+	err = timed(timeout, program, "test")
 	var exit *exec.ExitError
 	if errors.As(err, &exit) && exit.ExitCode() == 100 {
 		return fmt.Errorf("%s takes a reboot to activate", name)
@@ -245,10 +242,10 @@ func runs(hash string) error {
 	return os.WriteFile(liveFile, []byte(hash+"\n"), 0o644)
 }
 
-// activate gives switch-to-configuration the time a boot has: it waits for the units it starts
-// without a deadline of its own.
-func activate(program, timeout string) error {
-	return command(systemdRun, "--wait", "--pipe", "--collect", "--quiet", "--property=RuntimeMaxSec="+timeout, program, "test")
+// timed gives a command the time a boot has: switch-to-configuration and systemctl wait for
+// hooks and units without a deadline of their own.
+func timed(timeout string, args ...string) error {
+	return command(systemdRun, append([]string{"--wait", "--pipe", "--collect", "--quiet", "--property=RuntimeMaxSec=" + timeout}, args...)...)
 }
 
 // undo returns to the system that ran before a failed switch, and reboots if that fails too.
@@ -264,7 +261,7 @@ func undo(id string, entries []entry, target entry, before, timeout string, caus
 			result += " and is used up"
 		}
 	}
-	err := activate(filepath.Join(before, "bin/switch-to-configuration"), timeout)
+	err := timed(timeout, filepath.Join(before, "bin/switch-to-configuration"), "test")
 	if err == nil {
 		err = healthy(timeout)
 	}
@@ -302,7 +299,7 @@ func inTransientUnit(templates string) error {
 }
 
 // healthy runs what blesses a boot: the oneshot services boot-complete.target requires
-// start anew, its other requirements are active.
+// start anew, its other requirements are started unless they are up.
 func healthy(timeout string) error {
 	requires, err := exec.Command(systemctl, "show", "--property=Requires", "--value", "boot-complete.target").Output()
 	if err != nil {
@@ -310,10 +307,6 @@ func healthy(timeout string) error {
 	}
 	var oneshots, others []string
 	for _, unit := range strings.Fields(string(requires)) {
-		// restarting sysinit.target would restart every service
-		if strings.HasSuffix(unit, ".target") {
-			continue
-		}
 		kind, err := exec.Command(systemctl, "show", "--property=Type", "--value", unit).Output()
 		if err != nil {
 			return fmt.Errorf("systemctl show %s: %w", unit, err)
@@ -324,17 +317,17 @@ func healthy(timeout string) error {
 			others = append(others, unit)
 		}
 	}
+	// started, not restarted: what is up stays up, and sysinit.target would take every service along
+	if len(others) > 0 {
+		if err := timed(timeout, append([]string{systemctl, "start"}, others...)...); err != nil {
+			return fmt.Errorf("%s: %w", strings.Join(others, " "), err)
+		}
+	}
 	if len(oneshots) > 0 {
-		restart := append([]string{"--wait", "--pipe", "--collect", "--quiet", "--property=RuntimeMaxSec=" + timeout, systemctl, "restart"}, oneshots...)
-		if err := command(systemdRun, restart...); err != nil {
+		if err := timed(timeout, append([]string{systemctl, "restart"}, oneshots...)...); err != nil {
 			// a probe must not leave the system degraded
 			exec.Command(systemctl, append([]string{"reset-failed"}, oneshots...)...).Run()
 			return fmt.Errorf("%s: %w", strings.Join(oneshots, " "), err)
-		}
-	}
-	for _, unit := range others {
-		if err := command(systemctl, "is-active", "--quiet", unit); err != nil {
-			return fmt.Errorf("%s is not active", unit)
 		}
 	}
 	return nil

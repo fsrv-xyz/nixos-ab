@@ -143,8 +143,12 @@ unknown key until the reboot ends it.
 
 With `--switch` instead, it runs [`ab-update switch`](#without-a-reboot) on the
 device and then asks it which image is running, anew, as the switch may cut the
-connection. It fails if that is not the update: the device refused the switch,
-returned from it or rebooted.
+connection. It fails if that is not the update, or if the device rebooted: it
+refused the switch, returned from it or went down.
+
+After a switch a device runs another image than it booted. `--reboot` takes it
+as running the update only if it booted the update as well, so it also reboots
+a device into the image it switched to, or back into the one it booted.
 
 `ab-update` compares the image's root hash with the running image and the UKI
 that boots next, and stops if either matches. Otherwise it numbers the image
@@ -178,9 +182,10 @@ stays staged, and a reboot activates it.
 
 The activation has `ab.rollback.timeout` to finish, and so has the
 [health check](#health-and-rollback) of a boot after it: the oneshot services
-`boot-complete.target` requires start anew, its other requirements have to be
-active. If either fails, `ab-update` activates the system that ran before and
-marks the image used-up, as three failed boots would, so no reboot starts it. If that system fails the check as
+`boot-complete.target` requires start anew, and its other requirements are
+started unless they are up. If either fails, `ab-update` activates the system
+that ran before and marks the image used-up, as three failed boots would, so no
+reboot starts it. If that system fails the check as
 well, the device reboots into the image it booted from.
 
 The check runs in a system that is up already, where an order after targets
@@ -189,8 +194,10 @@ for what it tests, as `systemd-networkd-wait-online` does. One that looks once,
 right after the switch restarted the network, fails the switch.
 
 `ab-update switch` refuses, and leaves the image staged, while the boot is not
-blessed yet, while `ab-overlay` is active, and while the running system fails
-the health check already.
+blessed yet, while `ab-overlay` is active, while the running system fails the
+health check already, and when a pre-switch check of the image fails or does
+not return within `ab.rollback.timeout`. Only one `ab-update` runs at a time,
+installing or switching; another one fails at once.
 
 To go back, roll out the image the device booted from: `ab-update` makes it
 boot next again, and `ab-update switch` returns to it.

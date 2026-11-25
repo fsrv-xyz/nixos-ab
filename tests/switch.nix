@@ -16,6 +16,7 @@ let
         "a"
         "b"
         "bad"
+        "stuck"
         "hang"
         "poison"
       ]}
@@ -90,16 +91,24 @@ in
       };
     };
   };
+  # its check hangs on a target of its own, as a consumer's readiness target would
   nodes.bad = {
     imports = [ (build "bad") ];
-    systemd.services.unhealthy = {
+    systemd.targets.ready = {
       requiredBy = [ "boot-complete.target" ];
       before = [ "boot-complete.target" ];
-      serviceConfig = {
-        Type = "oneshot";
-        ExecStart = "${pkgs.coreutils}/bin/false";
-      };
+      requires = [ "unhealthy.service" ];
+      after = [ "unhealthy.service" ];
     };
+    systemd.services.unhealthy.serviceConfig = {
+      Type = "oneshot";
+      ExecStart = "${pkgs.coreutils}/bin/false";
+    };
+  };
+  # a pre-switch check that never returns
+  nodes.stuck = {
+    imports = [ (build "stuck") ];
+    system.preSwitchChecks.stuck = "${pkgs.coreutils}/bin/sleep infinity";
   };
   # switch-to-configuration waits for the start of a new unit, and this one never ends
   nodes.hang = {
@@ -179,6 +188,13 @@ in
           assert f"ab_{n} is active already" in v1.succeed("ab-update switch 2>&1")
           assert v1.succeed("cat /run/ab-update/live").strip() == usrhash("same")
 
+      with subtest("one ab-update at a time"):
+          v1.succeed("systemd-run --collect --unit=holder /run/current-system/sw/bin/flock /run/ab-update.lock /run/current-system/sw/bin/sleep 600")
+          v1.wait_until_succeeds("pgrep -f '^/run/current-system/sw/bin/sleep 600$'")
+          assert "another ab-update is running" in v1.fail("ab-update /mnt/same 2>&1")
+          assert "another ab-update is running" in v1.fail("ab-update switch 2>&1")
+          v1.succeed("systemctl stop holder")
+
       with subtest("ab-overlay blocks a switch"):
           n = install("big")
           v1.succeed("ab-overlay")
@@ -246,6 +262,13 @@ in
           assert default().endswith("/ab_1.efi")
           assert v1.succeed("cat /run/ab-update/live").strip() == usrhash("b")
           v1.succeed(f"journalctl -t ab-update | grep 'switch to ab_{n} failed'")
+
+      with subtest("a pre-switch check that does not return is refused when its time is up"):
+          n = install("stuck")
+          v1.succeed("systemd-run --collect --unit=caller /run/current-system/sw/bin/ab-update switch")
+          v1.wait_until_fails("systemctl is-active caller.service", timeout=120)
+          staged(n)
+          assert boot_id() == boot and build() == "b"
 
       with subtest("an activation that does not finish in time is undone like a failed one"):
           n = install("hang")

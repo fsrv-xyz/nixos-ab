@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 // Set at link time to the system's programs.
@@ -52,6 +53,12 @@ func main() {
 }
 
 func run(templates, arg string) error {
+	if arg == "switch" && os.Getenv(inUnit) == "" {
+		return inTransientUnit(templates)
+	}
+	if err := lock(); err != nil {
+		return err
+	}
 	osRelease, err := os.Open("/etc/os-release")
 	if err != nil {
 		return err
@@ -132,6 +139,21 @@ func run(templates, arg string) error {
 		return err
 	}
 	fmt.Printf("%s_%d boots next; reboot or run ab-update switch to activate it\n", id, p.Number)
+	return nil
+}
+
+// held until exit: an install must not replace the image a switch is activating
+var lockFile *os.File
+
+func lock() error {
+	f, err := os.OpenFile("/run/ab-update.lock", os.O_CREATE|os.O_RDONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		return errors.New("another ab-update is running")
+	}
+	lockFile = f
 	return nil
 }
 

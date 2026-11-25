@@ -172,5 +172,37 @@ in
           assert "boots next" in out and "without a reboot" in out, out
           assert client.succeed("ssh root@rescue cat /etc/generation") == "switched"
           assert boot_id() == boot
+
+      with subtest("update-host --reboot boots a device into the image it switched to"):
+          out = client.succeed("update-host --reboot root@rescue ${switched} 2>&1", timeout=900)
+          assert "rebooting" in out and "blessed" in out, out
+          device.connected = False
+          device.connect()
+          assert client.succeed("ssh root@rescue cat /etc/generation") == "switched"
+          assert boot_id() != boot
+
+      with subtest("update-host --switch fails when the device reboots instead"):
+          boot = boot_id()
+          # the reboot a power loss would cause, once the switch runs
+          device.succeed(
+              "systemd-run --unit=powerloss --setenv PATH=/run/current-system/sw/bin /bin/sh -c"
+              " 'until systemctl is-active ab-update-switch.service; do sleep 0.1; done; systemctl reboot --force'"
+          )
+          status, out = client.execute("update-host --switch root@rescue ${update} 2>&1", timeout=900)
+          device.connected = False
+          device.connect()
+          assert status != 0 and "rebooted instead of switching" in out, out
+          assert boot_id() != boot
+          device.wait_for_unit("systemd-bless-boot.service")
+
+      with subtest("update-host --reboot reboots a device that switched away from the image it booted"):
+          client.succeed("update-host --switch root@rescue ${switched} 2>&1", timeout=900)
+          boot = boot_id()
+          out = client.succeed("update-host --reboot root@rescue ${update} 2>&1", timeout=900)
+          assert "rebooting" in out and "blessed" in out, out
+          device.connected = False
+          device.connect()
+          assert client.succeed("ssh root@rescue cat /etc/generation") == "update"
+          assert boot_id() != boot
     '';
 }

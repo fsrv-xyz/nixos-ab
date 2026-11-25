@@ -236,12 +236,14 @@ that boots next; a later reboot starts that same image.
 | Store view | a read-only overlay on `/nix/store`: all delta directories, newest first, over the image's store `/usr/nix/store`. Built from that base every time, as overlayfs nests two deep at most | my call |
 | Memory | refuses before copying if the delta exceeds half of `MemAvailable` | my call |
 | Activation | `<toplevel>/bin/switch-to-configuration test`: `test` leaves the boot loader alone, sysupdate owns the ESP. In a transient unit, so it outlives an SSH session it cuts, and within `ab.rollback.timeout`, as switch-to-configuration waits for the units it starts without a deadline (final review). Needs `system.switch.enable`, the NixOS default | my call |
-| Health | switch-to-configuration exits 0, then every oneshot service `boot-complete.target` requires is restarted and succeeds within `ab.rollback.timeout`, and its other requirements are active: what blesses a boot. Its targets are left alone, as restarting `sysinit.target` restarts everything | my call |
-| Refusal | every error before the activation starts leaves the image staged: the guards, the memory limit, a switch-to-configuration that is missing or stops early (pre-switch check, incompatible init interface) | my call |
+| Health | switch-to-configuration exits 0, then within `ab.rollback.timeout` the other requirements of `boot-complete.target` are started unless they are up, targets included, and every oneshot service it requires is restarted and succeeds: what blesses a boot. Started, not checked, as a boot that was not counted never started them; not restarted, as `sysinit.target` would take every service along | my call, Codex review |
+| Refusal | every error before the activation starts leaves the image staged: the guards, the memory limit, a switch-to-configuration that is missing or stops early (pre-switch check failed or out of time, incompatible init interface) | my call |
 | Failure | activate the system that ran before and mark the image's UKI used-up (`+0-3`, what three failed boots leave), so no reboot starts it and the next image is numbered above it; the booted UKI is never marked. Exit status non-zero | my call |
 | Failed undo | the system that ran before fails its activation or the health check too: reboot. The failed UKI is used-up, so the booted, blessed image starts, as after a failed boot | user |
 | Blessing | unchanged: the UKI keeps its tries, its first boot is counted and checked, kernel and initrd included | my call |
 | Guards | refuses while the boot is not blessed, as its rollback is still pending; while `ab-overlay` is active, as the new overlay would hide its edits; and while the running system fails the health check itself, as a unit that failed earlier would otherwise fail the switch, then its undo, and end in the reboot below | my call |
+| Lock | one `ab-update` at a time, installing, vacuuming or switching, so no install replaces the image a switch activates; another one fails at once | Codex review; failing instead of waiting my call |
+| update-host | tells the image a device booted from the one it runs: `--reboot` takes the update as running only if both are it, `--switch` fails when the boot ID changed | Codex review |
 | Back by hand | rolling out the booted image while another one boots next marks that one used-up, so the booted image boots next again and `switch` returns to it. Until now `ab-update` only said it runs already and left the other one staged | my call |
 
 Known gap: when a switch fails after an earlier one in the same boot, the system that ran
@@ -280,3 +282,9 @@ One VM, ≤ 1 GiB RAM, small deltas:
     booted image.
 12. A unit that failed before the switch: refused, the image stays staged.
 13. An image with a unit whose start never ends: undone once the timeout is over.
+14. With the lock held, an install and a switch fail at once.
+15. An image whose pre-switch check never returns: refused once the timeout is over, the
+    image stays staged.
+16. `update-host --switch` fails when the device reboots during the switch, also into the
+    update; `update-host --reboot` reboots a device into the image it switched to, and one
+    that switched away from the image it booted back into that.
