@@ -64,6 +64,12 @@ let
     ldflags = [
       "-X main.bootctl=${config.systemd.package}/bin/bootctl"
       "-X main.sysupdate=${config.systemd.package}/lib/systemd/systemd-sysupdate"
+      "-X main.veritysetup=${config.systemd.package}/lib/systemd/systemd-veritysetup"
+      "-X main.blessBoot=${config.systemd.package}/lib/systemd/systemd-bless-boot"
+      "-X main.systemctl=${config.systemd.package}/bin/systemctl"
+      "-X main.systemdRun=${config.systemd.package}/bin/systemd-run"
+      "-X main.udevadm=${config.systemd.package}/bin/udevadm"
+      "-X main.cp=${pkgs.coreutils}/bin/cp"
     ];
     meta.mainProgram = "ab-update";
   };

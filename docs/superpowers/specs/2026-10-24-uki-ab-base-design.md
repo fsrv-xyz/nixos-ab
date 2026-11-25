@@ -179,3 +179,112 @@ store mount):
    tries are exhausted and systemd-boot falls back to v3; v3 then stays up (no loop).
 5. `ab-update` leaves the running image and the one that boots next alone, and after
    the fallback numbers the next image above the used-up v4.
+
+## Live switch (2026-11-25)
+
+### Intent
+
+Roll a new configuration out without rebooting (user): a reboot takes minutes on these
+devices and stops everything on them. `ab-update switch` makes the running system the image
+that boots next; a later reboot starts that same image.
+
+### Goals
+
+- A rollout stays an image: `ab-update` writes it into the inactive slot as before, the
+  switch only activates it. No configuration reaches a device outside an image.
+- Any number of switches per boot (user).
+- A switch that fails its health check undoes itself, unattended, as a boot does.
+- `update-host --switch` installs and switches from the admin's machine and reports the
+  outcome.
+
+### Non-goals
+
+- Activating a new kernel, initrd or kernel command line: they wait for the next reboot,
+  and `ab-update switch` says so when they differ from the booted ones.
+- Switching to an image whose changes do not fit into memory: it refuses, the image stays
+  staged and a reboot activates it. No reboot on its own instead.
+- Freeing the memory of earlier switches, failed ones included, before the next reboot.
+
+### Anti-goals
+
+- A slot that stays open after the switch: the next update could not be written.
+- A running system that differs from the image that boots next without saying so.
+
+### Approaches
+
+1. **Mount the inactive slot over `/nix/store`.** Needs no memory and takes changes of any
+   size. After the switch both slots are in use, the booted one by everything that was not
+   restarted, the other one as the store: one switch per boot, and the next update needs a
+   reboot first.
+2. **Copy the delta into memory** (picked by the user). The slot is opened only to copy the
+   store paths the running system lacks into a tmpfs, so the slots stay what boots. Any
+   number of switches per boot. It costs memory in the size of the changed paths: a nixpkgs
+   bump does not fit and takes a reboot, as before.
+3. **Delta from the admin's machine into a tmpfs, no image written**: fast, but gone with
+   the next reboot, and a rollout has to survive one.
+4. Dropped early: Nix with a writable store on `/state` (the device drifts from the
+   verified image) and `systemctl soft-reboot` (restarts every service).
+
+### Decided how
+
+| Topic | Decision | By |
+|---|---|---|
+| Interface | `ab-update switch`, without arguments; `update-host --switch`, exclusive with `--reboot` | my call |
+| Where | in `ab-update`, which knows the UKIs already; systemd-veritysetup, mount, cp, switch-to-configuration and systemctl do the work | my call |
+| Target | the toplevel in `init=` of the UKI that boots next (`bootctl list`). It is `/run/current-system` already: nothing to do. It is the booted image: no delta, activation only | my call |
+| Delta | open the image's slot with `systemd-veritysetup` under the root hash of its UKI, mount it read-only, copy every store path `/nix/store` lacks into a new directory on a tmpfs below `/run`, close the slot | user (1b) |
+| Store view | a read-only overlay on `/nix/store`: all delta directories, newest first, over the image's store `/usr/nix/store`. Built from that base every time, as overlayfs nests two deep at most | my call |
+| Memory | refuses before copying if the delta exceeds half of `MemAvailable` | my call |
+| Activation | `<toplevel>/bin/switch-to-configuration test`: `test` leaves the boot loader alone, sysupdate owns the ESP. In a transient unit, so it outlives an SSH session it cuts, and within `ab.rollback.timeout`, as switch-to-configuration waits for the units it starts without a deadline (final review). Needs `system.switch.enable`, the NixOS default | my call |
+| Health | switch-to-configuration exits 0, then within `ab.rollback.timeout` the other requirements of `boot-complete.target` are started unless they are up, targets included, and every oneshot service it requires is restarted and succeeds: what blesses a boot. Started, not checked, as a boot that was not counted never started them; not restarted, as `sysinit.target` would take every service along | my call, Codex review |
+| Refusal | every error before the activation starts leaves the image staged: the guards, the memory limit, a switch-to-configuration that is missing or stops early (pre-switch check failed or out of time, incompatible init interface), and an activation after which `/run/current-system` is still the system before (Codex review) | my call |
+| Failure | activate the system that ran before and mark the image's UKI used-up (`+0-3`, what three failed boots leave), so no reboot starts it and the next image is numbered above it; the booted UKI is never marked. Exit status non-zero | my call |
+| Failed undo | the system that ran before fails its activation or the health check too: reboot, with the booted, blessed image as the one-shot boot entry, as an image that was refused may still be staged (Codex review) | user |
+| Blessing | unchanged: the UKI keeps its tries, its first boot is counted and checked, kernel and initrd included | my call |
+| Guards | refuses while the boot is not blessed, as its rollback is still pending; while `ab-overlay` is active, as the new overlay would hide its edits; and while the running system fails the health check itself, as a unit that failed earlier would otherwise fail the switch, then its undo, and end in the reboot below | my call |
+| Lock | one `ab-update` at a time, installing, vacuuming or switching, so no install replaces the image a switch activates; another one fails at once | Codex review; failing instead of waiting my call |
+| update-host | tells the image a device booted from the one it runs: `--reboot` takes the update as running only if both are it, `--switch` fails when the boot ID changed | Codex review |
+| Back by hand | rolling out the booted image while another one boots next marks that one used-up, so the booted image boots next again and `switch` returns to it. Until now `ab-update` only said it runs already and left the other one staged | my call |
+
+Known gap: when a switch fails after an earlier one in the same boot, the system that ran
+before comes back from memory, but its image is gone from the disk, overwritten by the
+failed one. A reboot then starts the booted image. `ab-update` says so; rolling the lost
+image out again stages it without another switch (*my call*: least disruption now, over
+going back two configurations to match the disk).
+
+### Left to the builder
+
+- Names and layout below `/run`, of the mapped device and of the transient unit.
+- Finding the slot's partitions: their UUIDs derive from the root hash, but udev's view was
+  stale after sysupdate before (PARTLABEL, see the pitfalls file).
+- How the delta's size is counted.
+- How `update-host --switch` learns the outcome when the switch cut its connection: it
+  reconnects, waits for the switch to end and asks the device which system is live.
+- README: a section next to Update, and what `umount -l /nix/store` means after a switch.
+- NixOS test nodes turn `system.switch.enable` off (`nixos-test-base.nix`).
+
+### Success = the VM tests pass, with these added
+
+One VM, ≤ 1 GiB RAM, small deltas:
+
+6. Update to an image with a changed file and a new service, `ab-update switch`: same boot
+   ID, both active, no mapped device left over. A second image switches in the same boot.
+   A reboot then starts that image, and it is blessed.
+7. An image that fails its health check: after the switch the previous system is live
+   again, its UKI is used-up, the booted image boots next, and the next image is numbered
+   above it.
+8. A delta larger than the memory limit is refused, and the image stays staged.
+9. Rolling out the booted image while another one is live: it boots next again, and
+   `switch` returns to it.
+10. `update-host --switch` updates the host of the install-host test within one boot, and
+    fails when the device refuses the switch.
+11. An image that leaves the system unhealthy after the undo too: the VM reboots into the
+    booted image.
+12. A unit that failed before the switch: refused, the image stays staged.
+13. An image with a unit whose start never ends: undone once the timeout is over.
+14. With the lock held, an install and a switch fail at once.
+15. An image whose pre-switch check never returns: refused once the timeout is over, the
+    image stays staged.
+16. `update-host --switch` fails when the device reboots during the switch, also into the
+    update; `update-host --reboot` reboots a device into the image it switched to, and one
+    that switched away from the image it booted back into that.

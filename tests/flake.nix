@@ -27,6 +27,10 @@
           imports = [ ./ab.nix ];
           defaults.imports = [ nixos-ab.nixosModules.default ];
         };
+        switch = pkgs.testers.runNixOSTest {
+          imports = [ ./switch.nix ];
+          defaults.imports = [ nixos-ab.nixosModules.default ];
+        };
         state-plain = pkgs.testers.runNixOSTest {
           imports = [ ./state-plain.nix ];
           defaults.imports = [ nixos-ab.nixosModules.default ];
@@ -36,6 +40,7 @@
           nodes.client.environment.systemPackages = [ tools ];
           nodes.device.imports = [ nixos-ab.nixosModules.default ];
           nodes.updated.imports = [ nixos-ab.nixosModules.default ];
+          nodes.switched.imports = [ nixos-ab.nixosModules.default ];
         };
         new-host = pkgs.callPackage ./new-host.nix { new-host = tools; };
         hosts =

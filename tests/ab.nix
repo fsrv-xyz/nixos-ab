@@ -172,7 +172,7 @@ in
 
       with subtest("update to v2 via HTTP"):
           serve("v2")
-          assert v1.succeed("ls /etc/ab-update").split() == ["10-store-verity.transfer", "20-store.transfer", "90-uki.transfer", "url"]
+          assert v1.succeed("ls /etc/ab-update").split() == ["10-store-verity.transfer", "20-store.transfer", "90-uki.transfer", "rollback-timeout", "url"]
           assert "as ab_2" in v1.succeed("ab-update")
           v1.succeed("test -f /boot/EFI/Linux/ab_2+3-0.efi")
           v1.reboot()

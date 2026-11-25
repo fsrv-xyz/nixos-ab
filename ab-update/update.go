@@ -20,6 +20,8 @@ import (
 type entry struct {
 	Number   int
 	UsrHash  string
+	Init     string
+	Path     string
 	Default  bool
 	Selected bool
 }
@@ -47,18 +49,35 @@ func parseEntries(id string, bootctlJSON []byte) ([]entry, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", e.Path, err)
 		}
-		entries = append(entries, entry{Number: n, UsrHash: usrHash(e.Cmdline), Default: e.IsDefault, Selected: e.IsSelected})
+		entries = append(entries, entry{
+			Number:   n,
+			UsrHash:  usrHash(e.Cmdline),
+			Init:     cmdlineValue(e.Cmdline, "init"),
+			Path:     e.Path,
+			Default:  e.IsDefault,
+			Selected: e.IsSelected,
+		})
 	}
 	return entries, nil
 }
 
-func usrHash(cmdline string) string {
+func cmdlineValue(cmdline, key string) string {
 	for _, f := range strings.Fields(cmdline) {
-		if h, ok := strings.CutPrefix(f, "usrhash="); ok {
-			return h
+		if v, ok := strings.CutPrefix(f, key+"="); ok {
+			return v
 		}
 	}
 	return ""
+}
+
+func usrHash(cmdline string) string {
+	return cmdlineValue(cmdline, "usrhash")
+}
+
+// usedUp names a UKI as three failed boots leave it: systemd-boot skips it, and the next image is numbered above it.
+func usedUp(path string) string {
+	m := entryName.FindStringSubmatch(filepath.Base(path))
+	return filepath.Join(filepath.Dir(path), m[1]+"_"+m[2]+"+0-3.efi")
 }
 
 func imageID(osRelease io.Reader) (string, error) {
@@ -79,6 +98,7 @@ type plan struct {
 	Install bool
 	Number  int
 	Running int
+	UsedUp  string
 	Message string
 }
 
@@ -97,6 +117,11 @@ func decide(id string, entries []entry, running, incoming string) (plan, error) 
 		return plan{}, err
 	}
 	if incoming == running {
+		for _, e := range entries {
+			if e.Default && !e.Selected {
+				return plan{Number: current, Running: current, UsedUp: e.Path, Message: fmt.Sprintf("%s_%d boots next again", id, current)}, nil
+			}
+		}
 		return plan{Number: current, Running: current, Message: fmt.Sprintf("%s_%d runs this image already", id, current)}, nil
 	}
 	highest := 0

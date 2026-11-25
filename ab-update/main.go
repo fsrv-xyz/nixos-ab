@@ -1,5 +1,6 @@
 // ab-update installs an image into the slot not running, numbered one above every UKI of the
-// image on the ESP, and leaves the work to systemd-sysupdate.
+// image on the ESP, and leaves the work to systemd-sysupdate. Its switch activates that image
+// in the running system.
 package main
 
 import (
@@ -16,12 +17,19 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
-// Set at link time to the system's systemd.
+// Set at link time to the system's programs.
 var (
-	bootctl   = "bootctl"
-	sysupdate = "systemd-sysupdate"
+	bootctl     = "bootctl"
+	sysupdate   = "systemd-sysupdate"
+	veritysetup = "systemd-veritysetup"
+	blessBoot   = "systemd-bless-boot"
+	systemctl   = "systemctl"
+	systemdRun  = "systemd-run"
+	udevadm     = "udevadm"
+	cp          = "cp"
 )
 
 var rootHash = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -31,7 +39,7 @@ func main() {
 	log.SetPrefix("ab-update: ")
 	templates := flag.String("definitions", "/etc/ab-update", "`directory` of the transfer definition templates and the default source, url")
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "usage: ab-update [-definitions directory] [directory | URL | vacuum]\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "usage: ab-update [-definitions directory] [directory | URL | vacuum | switch]\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -45,6 +53,12 @@ func main() {
 }
 
 func run(templates, arg string) error {
+	if arg == "switch" && os.Getenv(inUnit) == "" {
+		return inTransientUnit(templates)
+	}
+	if err := lock(); err != nil {
+		return err
+	}
 	osRelease, err := os.Open("/etc/os-release")
 	if err != nil {
 		return err
@@ -65,6 +79,10 @@ func run(templates, arg string) error {
 	entries, err := parseEntries(id, list)
 	if err != nil {
 		return err
+	}
+
+	if arg == "switch" {
+		return switchSystem(templates, id, entries)
 	}
 
 	if arg == "vacuum" {
@@ -100,6 +118,11 @@ func run(templates, arg string) error {
 		return err
 	}
 	if !p.Install {
+		if p.UsedUp != "" {
+			if err := os.Rename(p.UsedUp, usedUp(p.UsedUp)); err != nil {
+				return err
+			}
+		}
 		fmt.Println(p.Message)
 		return nil
 	}
@@ -115,7 +138,22 @@ func run(templates, arg string) error {
 	if err := update(templates, &server{src: src, sums: renamed, files: files}, p.Running, "update", strconv.Itoa(p.Number)); err != nil {
 		return err
 	}
-	fmt.Printf("%s_%d boots next; reboot to activate it\n", id, p.Number)
+	fmt.Printf("%s_%d boots next; reboot or run ab-update switch to activate it\n", id, p.Number)
+	return nil
+}
+
+// held until exit: an install must not replace the image a switch is activating
+var lockFile *os.File
+
+func lock() error {
+	f, err := os.OpenFile("/run/ab-update.lock", os.O_CREATE|os.O_RDONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		return errors.New("another ab-update is running")
+	}
+	lockFile = f
 	return nil
 }
 

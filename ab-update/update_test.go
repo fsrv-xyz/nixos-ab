@@ -30,8 +30,8 @@ func TestParseEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []entry{
-		{Number: 3, UsrHash: hashA, Selected: true},
-		{Number: 4, UsrHash: hashB, Default: true},
+		{Number: 3, UsrHash: hashA, Init: "/x", Path: "/boot/EFI/Linux/ab_3.efi", Selected: true},
+		{Number: 4, UsrHash: hashB, Path: "/boot/EFI/Linux/ab_4+2-1.efi", Default: true},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v, want %+v", got, want)
@@ -53,6 +53,10 @@ func TestDecide(t *testing.T) {
 		{"staged image", []entry{{Number: 3, UsrHash: hashA, Selected: true}, staged}, hashB, plan{Number: 4, Running: 3, Message: "ab_4 holds this image already and boots next"}},
 		{"new image after a rollback", []entry{running, failed}, hashC, plan{Install: true, Number: 5, Running: 3}},
 		{"failed image again", []entry{running, failed}, hashB, plan{Install: true, Number: 5, Running: 3}},
+		{"booted image while another boots next",
+			[]entry{{Number: 3, UsrHash: hashA, Selected: true}, {Number: 4, UsrHash: hashB, Default: true, Path: "/boot/EFI/Linux/ab_4+3-0.efi"}},
+			hashA,
+			plan{Number: 3, Running: 3, UsedUp: "/boot/EFI/Linux/ab_4+3-0.efi", Message: "ab_3 boots next again"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := decide("ab", tc.entries, hashA, tc.incoming)
@@ -67,6 +71,14 @@ func TestDecide(t *testing.T) {
 
 	if _, err := decide("ab", []entry{failed}, hashA, hashC); err == nil {
 		t.Fatal("no booted entry: want an error")
+	}
+}
+
+func TestUsedUp(t *testing.T) {
+	for _, path := range []string{"/boot/EFI/Linux/ab_4+3-0.efi", "/boot/EFI/Linux/ab_4+2-1.efi", "/boot/EFI/Linux/ab_4.efi"} {
+		if got := usedUp(path); got != "/boot/EFI/Linux/ab_4+0-3.efi" {
+			t.Errorf("usedUp(%q) = %q", path, got)
+		}
 	}
 }
 

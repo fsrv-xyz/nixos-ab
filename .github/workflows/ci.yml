@@ -37,7 +37,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        check: [ab, state-plain, install-host]
+        check: [ab, switch, state-plain, install-host]
     steps:
       # four test images with their intermediate images and update artifacts outgrow the free disk
       - name: Free disk space

@@ -141,6 +141,15 @@ default key in `/etc/ssh` is new on every boot. If ssh refuses the key of the
 new boot, `update-host` fails right away; a `ControlMaster` connection hides an
 unknown key until the reboot ends it.
 
+With `--switch` instead, it runs [`ab-update switch`](#without-a-reboot) on the
+device and then asks it which image is running, anew, as the switch may cut the
+connection. It fails if that is not the update, or if the device rebooted: it
+refused the switch, returned from it or went down.
+
+After a switch a device runs another image than it booted. `--reboot` takes it
+as running the update only if it booted the update as well, so it also reboots
+a device into the image it switched to, or back into the one it booted.
+
 `ab-update` compares the image's root hash with the running image and the UKI
 that boots next, and stops if either matches. Otherwise it numbers the image
 one above every UKI of the image on the ESP, a used-up one included, and hands
@@ -150,6 +159,54 @@ on its own.
 
 An interrupted update leaves the inactive slot half-written, and sysupdate
 refuses to retry until it is cleared: run `ab-update vacuum` first.
+
+### Without a reboot
+
+`ab-update switch` makes the running system the image that boots next:
+
+```sh
+ab-update && ab-update switch
+```
+
+It opens the image's slot only to copy the store paths the running system lacks
+into memory, adds them to `/nix/store` and runs the image's
+`switch-to-configuration test`, as `nixos-rebuild test` does. The slots stay as
+they are, so a boot takes any number of switches, and a reboot starts the image
+that is running. Kernel, initrd and kernel command line wait for that reboot;
+`ab-update switch` says so when they changed. The image needs
+`system.switch.enable`, the NixOS default.
+
+The copy stays in memory until the next reboot. A delta above half of the
+available memory is refused, as a release with a new nixpkgs would be: the image
+stays staged, and a reboot activates it.
+
+The activation has `ab.rollback.timeout` to finish, and so has the
+[health check](#health-and-rollback) of a boot after it: the oneshot services
+`boot-complete.target` requires start anew, and its other requirements are
+started unless they are up. If either fails, `ab-update` activates the system
+that ran before and marks the image used-up, as three failed boots would, so no
+reboot starts it. If that system fails the check as
+well, the device reboots into the image it booted from.
+
+The check runs in a system that is up already, where an order after targets
+such as `network-online.target` holds nothing back: a unit has to wait itself
+for what it tests, as `systemd-networkd-wait-online` does. One that looks once,
+right after the switch restarted the network, fails the switch.
+
+`ab-update switch` refuses, and leaves the image staged, while the boot is not
+blessed yet, while `ab-overlay` is active, while the running system fails the
+health check already, and when a pre-switch check of the image fails or does
+not return within `ab.rollback.timeout`. An activation that ends before the
+image's system is the running one leaves the image staged too. Only one
+`ab-update` runs at a time, installing or switching; another one fails at once.
+
+To go back, roll out the image the device booted from: `ab-update` makes it
+boot next again, and `ab-update switch` returns to it.
+
+When a switch fails after an earlier one in the same boot, the system that runs
+again is no longer on the disk, where the failed image replaced it: a reboot
+starts the image the device booted from. `ab-update` says so; roll the lost
+image out again to keep it.
 
 ## State
 
@@ -255,7 +312,8 @@ The changes live in RAM and are gone with the next reboot, the one into an
 update included. A changed store file changes for everything that uses its
 path. Services see the overlay at once, also in mount namespaces of their own;
 a process keeps a file it opened before. `umount -l /nix/store` ends the
-overlay without a reboot.
+overlay without a reboot; only while it is active, as after `ab-update switch`
+the same command would take the switched system's store paths away.
 
 ## Not included
 
@@ -281,9 +339,12 @@ update, updates over HTTP and from a local directory, leaves the running and the
 staged image alone, rolls back from an image that fails its health check and
 numbers the next image above the used-up one, keeping `/state` throughout;
 `ab-overlay` changes and deletes store files until a reboot. A second VM
+switches to updates without a reboot, more than once per boot, returns from one
+that fails its health check and reboots when that return fails too. A third VM
 provisions a file into a plain state partition. `new-host` runs with throwaway
 keys and checks who can decrypt what. `install-host` writes a host to the disk
 of a rescue VM, which then boots it as the host, and `update-host` updates it
-and waits for the blessed boot of the update. Evaluation checks cover the
+and waits for the blessed boot of the update, then switches it to another one
+within that boot. Evaluation checks cover the
 `system.image.version` assertion, the `system.stateVersion` default and
 `lib.hosts`.

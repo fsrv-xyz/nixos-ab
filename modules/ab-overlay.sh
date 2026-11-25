@@ -7,7 +7,8 @@ fail() {
   echo "ab-overlay: $*" >&2
   exit 1
 }
-active() { findmnt --noheadings --types overlay /nix/store >/dev/null; }
+# by its name: ab-update switch mounts an overlay on the store too
+active() { findmnt --noheadings --source ab-overlay --mountpoint /nix/store >/dev/null; }
 
 case ${1-} in
 "")
