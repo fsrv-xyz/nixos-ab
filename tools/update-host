@@ -39,7 +39,7 @@ ssh -o ExitOnForwardFailure=yes -R "$port:127.0.0.1:$port" "$target" ab-update "
 
 if [[ -n $switch ]]; then
   # the device has the last word, asked anew: the switch may cut this connection
-  ssh -n "$target" ab-update switch || :
+  ssh -n -o ServerAliveInterval=10 "$target" ab-update switch || :
   live='echo "$(systemctl is-active ab-update-switch.service)" "$(cat /run/ab-update/live 2>/dev/null || sed -n "s/.*usrhash=\([0-9a-f]*\).*/\1/p" /proc/cmdline)"'
   deadline=$((SECONDS + 1200))
   while :; do
