@@ -142,11 +142,15 @@ new boot, `update-host` fails right away; a `ControlMaster` connection hides an
 unknown key until the reboot ends it.
 
 With `--switch` instead, it runs [`ab-update -confirm switch`](#without-a-reboot)
-on the device and confirms the switch over SSH logins of its own, with
-`ControlPath=none`: a switch that lets no new login in, through a wrong address
-or a closed port, is undone. It then asks the device which image is running,
-anew, as the switch may cut the connection. It fails if that is not the update,
-or if the device rebooted: it refused the switch, returned from it or went down.
+on the device and confirms the switch with an SSH login it opens once the switch
+waits, with `ControlPath=none`: a switch that lets no new login in, through a
+wrong address or a closed port, is undone. It looks every five seconds whether
+the switch waits, which an `ab.rollback.timeout` of a few seconds leaves no room
+for. It then asks the device which image is running, anew, as the switch may cut
+the connection. It fails if that is not the update, or if the device rebooted:
+it refused the switch, returned from it or went down. A device whose `ab-update`
+knows no `-confirm` is turned down before the update is installed, as a reboot
+would start it.
 
 After a switch a device runs another image than it booted. `--reboot` takes it
 as running the update only if it booted the update as well, so it also reboots
@@ -192,9 +196,10 @@ well, the device reboots into the image it booted from.
 
 With `-confirm`, the health check is not the last word: `ab-update -confirm
 switch` then waits another `ab.rollback.timeout` for `ab-update confirm`, and
-without it goes back as from a failed check. Run from a new login, the
-confirmation shows that the switched system still lets one in, which no check
-on the device can tell. `ab-update confirm` fails while no switch waits.
+without it goes back as from a failed check. Run from a login opened while the
+switch waits, the confirmation shows that the switched system still lets one
+in, which no check on the device can tell; a login from before the activation
+shows nothing. `ab-update confirm` fails while no switch waits.
 
 The check runs in a system that is up already, where an order after targets
 such as `network-online.target` holds nothing back: a unit has to wait itself
@@ -354,6 +359,7 @@ provisions a file into a plain state partition. `new-host` runs with throwaway
 keys and checks who can decrypt what. `install-host` writes a host to the disk
 of a rescue VM, which then boots it as the host, and `update-host` updates it
 and waits for the blessed boot of the update, then switches it to another one
-within that boot and returns from one that lets no new SSH login in. Evaluation
-checks cover the `system.image.version` assertion, the `system.stateVersion`
-default and `lib.hosts`.
+within that boot, returns from one that lets no new SSH login in and installs
+none on a device whose `ab-update` knows no `-confirm`. Evaluation checks cover
+the `system.image.version` assertion, the `system.stateVersion` default and
+`lib.hosts`.
