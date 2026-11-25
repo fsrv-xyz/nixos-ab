@@ -204,9 +204,7 @@ shows nothing. `ab-update confirm` fails while no switch waits.
 The check runs in a system that is up already, where an order after targets
 such as `network-online.target` holds nothing back: a unit has to wait itself
 for what it tests, as `systemd-networkd-wait-online` does. One that looks once,
-right after the switch restarted the network, fails the switch. The oneshot
-services are restarted alone: what one requires is not started with it, and
-`boot-complete.target` stays as it is.
+right after the switch restarted the network, fails the switch.
 
 `ab-update switch` refuses, and leaves the image staged, while the boot is not
 blessed yet, while `ab-overlay` is active, while the running system fails the

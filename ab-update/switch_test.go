@@ -125,3 +125,17 @@ func TestConfirm(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestOneshot(t *testing.T) {
+	for properties, want := range map[string][2]bool{
+		"Type=oneshot\nActiveState=active\n":     {true, true},
+		"Type=oneshot\nActiveState=activating\n": {true, false},
+		"Type=oneshot\nActiveState=failed\n":     {true, false},
+		"Type=simple\nActiveState=active\n":      {false, true},
+		"ActiveState=active\n":                   {false, true},
+	} {
+		if is, up := oneshot(properties); is != want[0] || up != want[1] {
+			t.Errorf("oneshot(%q) = %v, %v", properties, is, up)
+		}
+	}
+}

@@ -4,12 +4,14 @@ let
   build = name: { environment.etc."ab-build".text = name; };
   # the machine ID systemd takes from the firmware: without one the journal of the boot before is another machine's
   uuid = "a6b8e2c0-5f1d-4e3a-9b7c-1d2e3f405162";
-  # fails after a run of it that was cut short
+  # fails after a run of it that was cut short, and without what it requires
   whole = name: {
     requiredBy = [ "boot-complete.target" ];
     before = [ "boot-complete.target" ];
+    requires = [ "prerequisite.service" ];
+    after = [ "prerequisite.service" ];
     serviceConfig.Type = "oneshot";
-    script = "mkdir /run/${name}; sleep 1; rmdir /run/${name}";
+    script = "test -e /run/prerequisite; mkdir /run/${name}; sleep 1; rmdir /run/${name}";
   };
   # 9p hands symlinks to the guest unresolved, so the share needs real files
   artifacts =
@@ -63,6 +65,12 @@ in
     # two, as a health check that restarts one must not cut the run of the other short
     systemd.services.whole-a = whole "whole-a";
     systemd.services.whole-b = whole "whole-b";
+    # nothing else starts it: a boot that was not counted never ran the checks
+    systemd.services.prerequisite.serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = "${pkgs.coreutils}/bin/touch /run/prerequisite";
+    };
   };
 
   nodes.v1 =

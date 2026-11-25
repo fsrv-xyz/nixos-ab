@@ -358,16 +358,19 @@ func healthy(timeout string) error {
 	if err != nil {
 		return fmt.Errorf("systemctl show boot-complete.target: %w", err)
 	}
-	var oneshots, others []string
+	var restart, start, others []string
 	for _, unit := range strings.Fields(string(requires)) {
-		kind, err := exec.Command(systemctl, "show", "--property=Type", "--value", unit).Output()
+		properties, err := exec.Command(systemctl, "show", "--property=Type,ActiveState", unit).Output()
 		if err != nil {
 			return fmt.Errorf("systemctl show %s: %w", unit, err)
 		}
-		if strings.TrimSpace(string(kind)) == "oneshot" {
-			oneshots = append(oneshots, unit)
-		} else {
+		switch is, up := oneshot(string(properties)); {
+		case !is:
 			others = append(others, unit)
+		case up:
+			restart = append(restart, unit)
+		default:
+			start = append(start, unit)
 		}
 	}
 	// started, not restarted: what is up stays up, and sysinit.target would take every service along
@@ -376,16 +379,24 @@ func healthy(timeout string) error {
 			return fmt.Errorf("%s: %w", strings.Join(others, " "), err)
 		}
 	}
-	if len(oneshots) > 0 {
-		// without what requires them: a restart goes on to an active boot-complete.target, whose start
-		// starts the other oneshots, and the restart of each then ends that run with a signal
-		if err := timed(timeout, append([]string{systemctl, "restart", "--job-mode=ignore-requirements"}, oneshots...)...); err != nil {
+	// Only what is up restarts, and first: a restart ends the run of a oneshot that is starting with a
+	// signal, and goes on to an active boot-complete.target, whose start starts the others.
+	for _, job := range [][]string{append([]string{"restart"}, restart...), append([]string{"start"}, start...)} {
+		if len(job) == 1 {
+			continue
+		}
+		if err := timed(timeout, append([]string{systemctl}, job...)...); err != nil {
 			// a probe must not leave the system degraded
-			exec.Command(systemctl, append([]string{"reset-failed"}, oneshots...)...).Run()
-			return fmt.Errorf("%s: %w", strings.Join(oneshots, " "), err)
+			exec.Command(systemctl, append(append([]string{"reset-failed"}, restart...), start...)...).Run()
+			return fmt.Errorf("%s: %w", strings.Join(job[1:], " "), err)
 		}
 	}
 	return nil
+}
+
+// oneshot tells from the Type and ActiveState of a unit whether it is a oneshot service, and whether it is up.
+func oneshot(properties string) (is, up bool) {
+	return strings.Contains(properties, "Type=oneshot\n"), strings.Contains(properties, "ActiveState=active\n")
 }
 
 // stage copies the store paths of an installed image that the running system lacks into
