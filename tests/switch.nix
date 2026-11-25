@@ -105,10 +105,15 @@ in
       ExecStart = "${pkgs.coreutils}/bin/false";
     };
   };
-  # a pre-switch check that never returns
+  # its pre-switch check never returns while /run/stuck exists, and refuses the activation without it
   nodes.stuck = {
     imports = [ (build "stuck") ];
-    system.preSwitchChecks.stuck = "${pkgs.coreutils}/bin/sleep infinity";
+    system.preSwitchChecks.stuck = ''
+      case "''${2-}" in
+        check) [ ! -e /run/stuck ] || ${pkgs.coreutils}/bin/sleep infinity ;;
+        *) exit 1 ;;
+      esac
+    '';
   };
   # switch-to-configuration waits for the start of a new unit, and this one never ends
   nodes.hang = {
@@ -265,8 +270,15 @@ in
 
       with subtest("a pre-switch check that does not return is refused when its time is up"):
           n = install("stuck")
+          v1.succeed("touch /run/stuck")
           v1.succeed("systemd-run --collect --unit=caller /run/current-system/sw/bin/ab-update switch")
           v1.wait_until_fails("systemctl is-active caller.service", timeout=120)
+          staged(n)
+          assert boot_id() == boot and build() == "b"
+          v1.succeed("rm /run/stuck")
+
+      with subtest("an activation its pre-switch check refuses leaves the image staged"):
+          assert "stays staged" in v1.fail("ab-update switch 2>&1")
           staged(n)
           assert boot_id() == boot and build() == "b"
 
