@@ -15,6 +15,7 @@ let
         "a"
         "b"
         "bad"
+        "hang"
         "poison"
       ]}
     '';
@@ -83,6 +84,17 @@ in
       serviceConfig = {
         Type = "oneshot";
         ExecStart = "${pkgs.coreutils}/bin/false";
+      };
+    };
+  };
+  # switch-to-configuration waits for the start of a new unit, and this one never ends
+  nodes.hang = {
+    imports = [ (build "hang") ];
+    systemd.services.hang = {
+      wantedBy = [ "multi-user.target" ];
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = "${pkgs.coreutils}/bin/sleep infinity";
       };
     };
   };
@@ -216,6 +228,13 @@ in
           assert default().endswith("/ab_1.efi")
           assert v1.succeed("cat /run/ab-update/live").strip() == usrhash("b")
           v1.succeed(f"journalctl -t ab-update | grep 'switch to ab_{n} failed'")
+
+      with subtest("an activation that does not finish in time is undone like a failed one"):
+          n = install("hang")
+          v1.fail("ab-update switch 2>&1")
+          assert boot_id() == boot and build() == "b"
+          v1.succeed(f"test -f /boot/EFI/Linux/ab_{n}+0-3.efi")
+          v1.fail("systemctl is-active ab-update-switch.service")
 
       with subtest("the next image is numbered above the used-up one"):
           used = n

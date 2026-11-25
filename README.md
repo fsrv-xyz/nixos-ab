@@ -176,11 +176,11 @@ The copy stays in memory until the next reboot. A delta above half of the
 available memory is refused, as a release with a new nixpkgs would be: the image
 stays staged, and a reboot activates it.
 
-The switch has to pass the [health check](#health-and-rollback) of a boot within
-`ab.rollback.timeout`: the oneshot services `boot-complete.target` requires
-start anew, its other requirements have to be active. If it fails, `ab-update`
-activates the system that ran before and marks the image used-up, as three
-failed boots would, so no reboot starts it. If that system fails the check as
+The activation has `ab.rollback.timeout` to finish, and so has the
+[health check](#health-and-rollback) of a boot after it: the oneshot services
+`boot-complete.target` requires start anew, its other requirements have to be
+active. If either fails, `ab-update` activates the system that ran before and
+marks the image used-up, as three failed boots would, so no reboot starts it. If that system fails the check as
 well, the device reboots into the image it booted from.
 
 `ab-update switch` refuses, and leaves the image staged, while the boot is not

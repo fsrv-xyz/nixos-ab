@@ -211,11 +211,11 @@ func switchSystem(templates, id string, entries []entry) error {
 		}
 	}
 	// check first: a missing or unwilling switch-to-configuration is no failure of the image
-	activate := filepath.Join(toplevel, "bin/switch-to-configuration")
-	if err := command(activate, "check"); err != nil {
-		return fmt.Errorf("%s check: %w", activate, err)
+	program := filepath.Join(toplevel, "bin/switch-to-configuration")
+	if err := command(program, "check"); err != nil {
+		return fmt.Errorf("%s check: %w", program, err)
 	}
-	err = command(activate, "test")
+	err = activate(program, timeout)
 	var exit *exec.ExitError
 	if errors.As(err, &exit) && exit.ExitCode() == 100 {
 		return fmt.Errorf("%s takes a reboot to activate", name)
@@ -237,6 +237,12 @@ func switchSystem(templates, id string, entries []entry) error {
 	return nil
 }
 
+// activate gives switch-to-configuration the time a boot has: it waits for the units it starts
+// without a deadline of its own.
+func activate(program, timeout string) error {
+	return command(systemdRun, "--wait", "--pipe", "--collect", "--quiet", "--property=RuntimeMaxSec="+timeout, program, "test")
+}
+
 // undo returns to the system that ran before a failed switch, and reboots if that fails too.
 func undo(id string, entries []entry, target entry, before, timeout string, cause error) error {
 	name := fmt.Sprintf("%s_%d", id, target.Number)
@@ -250,7 +256,7 @@ func undo(id string, entries []entry, target entry, before, timeout string, caus
 			result += " and is used up"
 		}
 	}
-	err := command(filepath.Join(before, "bin/switch-to-configuration"), "test")
+	err := activate(filepath.Join(before, "bin/switch-to-configuration"), timeout)
 	if err == nil {
 		err = healthy(timeout)
 	}

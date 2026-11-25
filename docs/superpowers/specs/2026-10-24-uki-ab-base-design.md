@@ -235,7 +235,7 @@ that boots next; a later reboot starts that same image.
 | Delta | open the image's slot with `systemd-veritysetup` under the root hash of its UKI, mount it read-only, copy every store path `/nix/store` lacks into a new directory on a tmpfs below `/run`, close the slot | user (1b) |
 | Store view | a read-only overlay on `/nix/store`: all delta directories, newest first, over the image's store `/usr/nix/store`. Built from that base every time, as overlayfs nests two deep at most | my call |
 | Memory | refuses before copying if the delta exceeds half of `MemAvailable` | my call |
-| Activation | `<toplevel>/bin/switch-to-configuration test`: `test` leaves the boot loader alone, sysupdate owns the ESP. In a transient unit, so it outlives an SSH session it cuts. Needs `system.switch.enable`, the NixOS default | my call |
+| Activation | `<toplevel>/bin/switch-to-configuration test`: `test` leaves the boot loader alone, sysupdate owns the ESP. In a transient unit, so it outlives an SSH session it cuts, and within `ab.rollback.timeout`, as switch-to-configuration waits for the units it starts without a deadline (final review). Needs `system.switch.enable`, the NixOS default | my call |
 | Health | switch-to-configuration exits 0, then every oneshot service `boot-complete.target` requires is restarted and succeeds within `ab.rollback.timeout`, and its other requirements are active: what blesses a boot. Its targets are left alone, as restarting `sysinit.target` restarts everything | my call |
 | Refusal | every error before the activation starts leaves the image staged: the guards, the memory limit, a switch-to-configuration that is missing or stops early (pre-switch check, incompatible init interface) | my call |
 | Failure | activate the system that ran before and mark the image's UKI used-up (`+0-3`, what three failed boots leave), so no reboot starts it and the next image is numbered above it; the booted UKI is never marked. Exit status non-zero | my call |
@@ -279,3 +279,4 @@ One VM, ≤ 1 GiB RAM, small deltas:
 11. An image that leaves the system unhealthy after the undo too: the VM reboots into the
     booted image.
 12. A unit that failed before the switch: refused, the image stays staged.
+13. An image with a unit whose start never ends: undone once the timeout is over.
