@@ -275,6 +275,14 @@ func undo(id string, entries []entry, target entry, before, timeout string, caus
 	}
 	if err != nil {
 		log.Printf("returning to %s failed: %v; rebooting", before, err)
+		// whatever is staged, the reboot takes the image known to work
+		for _, e := range entries {
+			if e.Selected {
+				if err := command(bootctl, "set-oneshot", filepath.Base(e.Path)); err != nil {
+					log.Printf("bootctl set-oneshot: %v", err)
+				}
+			}
+		}
 		if err := command(systemctl, "reboot"); err != nil {
 			return err
 		}
@@ -414,8 +422,24 @@ func stage(id string, e entry) error {
 	} else if !errors.Is(err, fs.ErrExist) {
 		return err
 	}
+	deltas, err := names(deltaDir)
+	if err != nil {
+		return err
+	}
+	var numbers []int
+	for _, d := range deltas {
+		if n, err := strconv.Atoi(d); err == nil {
+			numbers = append(numbers, n)
+		}
+	}
+	// numbered on their own, not after the image: a delta a killed run copied but never
+	// mounted joins the store with this one instead of being in its way
+	number := 1
+	if len(numbers) > 0 {
+		number = slices.Max(numbers) + 1
+	}
 	// copied under another name: only complete deltas join the store
-	dir := filepath.Join(deltaDir, strconv.Itoa(e.Number))
+	dir := filepath.Join(deltaDir, strconv.Itoa(number))
 	partial := dir + ".partial"
 	if err := os.RemoveAll(partial); err != nil {
 		return err
@@ -444,18 +468,8 @@ func stage(id string, e entry) error {
 		return err
 	}
 
-	deltas, err := names(deltaDir)
-	if err != nil {
-		return err
-	}
-	var numbers []int
-	for _, d := range deltas {
-		if n, err := strconv.Atoi(d); err == nil {
-			numbers = append(numbers, n)
-		}
-	}
 	// built from the image's store each time: overlayfs nests two deep at most
-	if err := syscall.Mount("ab-update", store, "overlay", syscall.MS_RDONLY|syscall.MS_NOSUID|syscall.MS_NODEV, "lowerdir="+lowerDirs(numbers)); err != nil {
+	if err := syscall.Mount("ab-update", store, "overlay", syscall.MS_RDONLY|syscall.MS_NOSUID|syscall.MS_NODEV, "lowerdir="+lowerDirs(append(numbers, number))); err != nil {
 		os.RemoveAll(dir)
 		return fmt.Errorf("overlay on %s: %w", store, err)
 	}

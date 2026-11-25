@@ -126,17 +126,18 @@ in
       };
     };
   };
-  # breaks poison-check for good: no switch back removes the file
+  # refuses its activation and breaks poison-check on the way: no switch back removes the file
   nodes.poison = {
     imports = [ (build "poison") ];
-    systemd.services.poison = {
-      wantedBy = [ "multi-user.target" ];
-      serviceConfig = {
-        Type = "oneshot";
-        RemainAfterExit = true;
-        ExecStart = "${pkgs.coreutils}/bin/touch /run/poison";
-      };
-    };
+    system.preSwitchChecks.poison = ''
+      case "''${2-}" in
+        check) ;;
+        *)
+          ${pkgs.coreutils}/bin/touch /run/poison
+          exit 1
+          ;;
+      esac
+    '';
   };
 
   testScript =
@@ -313,10 +314,12 @@ in
       with subtest("a switch works in a boot that was counted"):
           boot = boot_id()
           n = install("a")
+          # what a run leaves that was killed between copying its delta and mounting it
+          v1.succeed(f"mkdir -p /run/ab-update/store/{n} && touch /run/ab-update/store/{n}/leftover")
           v1.succeed("ab-update switch")
           assert boot_id() == boot and build() == "a"
 
-      with subtest("a system that stays unhealthy after the undo reboots into the booted image"):
+      with subtest("a system that stays unhealthy after the undo reboots into the booted image, past a staged one"):
           n = install("poison")
           v1.succeed("systemd-run --unit=poisoned /run/current-system/sw/bin/ab-update switch")
           v1.wait_for_console_text("reboot: Restarting system")
@@ -324,7 +327,7 @@ in
           v1.connect()
           v1.wait_for_unit("multi-user.target")
           assert boot_id() != boot and build() == "b"
-          v1.succeed(f"test -f /boot/EFI/Linux/ab_{n}+0-3.efi")
+          staged(n)
           v1.succeed("journalctl -b -1 -t ab-update | grep rebooting")
     '';
 }
