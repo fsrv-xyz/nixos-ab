@@ -49,8 +49,9 @@ if [[ -n $switch ]]; then
   ssh -n -o ServerAliveInterval=10 "$target" ab-update switch || :
   deadline=$((SECONDS + 1200))
   while :; do
-    if { read -r id _ live _ && read -r state; } < <(ssh -n -o BatchMode=yes -o ConnectTimeout=5 -o ServerAliveInterval=10 \
-      "$target" "$probe; systemctl is-active ab-update-switch.service" 2>"$tmp/ssh"); then
+    # the unit first: once it is gone, the image read after it is the final one
+    if { read -r state && read -r id _ live _; } < <(ssh -n -o BatchMode=yes -o ConnectTimeout=5 -o ServerAliveInterval=10 \
+      "$target" "systemctl is-active ab-update-switch.service; $probe" 2>"$tmp/ssh"); then
       [[ $id == "$previous" ]] || fail "$target rebooted instead of switching"
       case $state in
       active | activating) ;;

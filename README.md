@@ -196,8 +196,9 @@ right after the switch restarted the network, fails the switch.
 `ab-update switch` refuses, and leaves the image staged, while the boot is not
 blessed yet, while `ab-overlay` is active, while the running system fails the
 health check already, and when a pre-switch check of the image fails or does
-not return within `ab.rollback.timeout`. Only one `ab-update` runs at a time,
-installing or switching; another one fails at once.
+not return within `ab.rollback.timeout`. An activation that ends before the
+image's system is the running one leaves the image staged too. Only one
+`ab-update` runs at a time, installing or switching; another one fails at once.
 
 To go back, roll out the image the device booted from: `ab-update` makes it
 boot next again, and `ab-update switch` returns to it.

@@ -253,8 +253,16 @@ func undo(id string, entries []entry, target entry, before, timeout string, caus
 	name := fmt.Sprintf("%s_%d", id, target.Number)
 	log.Printf("switch to %s failed: %v; returning to %s", name, cause, before)
 	result := name + " failed"
-	// the booted image stays bootable: it is what a reboot falls back to
-	if !target.Selected {
+	current, _ := os.Readlink("/run/current-system")
+	staged := current == before && !target.Selected
+	switch {
+	case staged:
+		// not known to be bad: its system never ran, and a reboot may still take it
+		result = name + " was not activated and stays staged"
+	case current == before:
+		result = name + " was not activated"
+	case !target.Selected:
+		// the booted image stays bootable: it is what a reboot falls back to
 		if err := os.Rename(target.Path, usedUp(target.Path)); err != nil {
 			log.Print(err)
 		} else {
@@ -274,7 +282,7 @@ func undo(id string, entries []entry, target entry, before, timeout string, caus
 	}
 	result += ", " + before + " is active again"
 	for _, e := range entries {
-		if e.Selected && filepath.Dir(e.Init) != before {
+		if e.Selected && !staged && filepath.Dir(e.Init) != before {
 			result += fmt.Sprintf("; it is no longer installed: a reboot starts %s_%d, roll it out again to keep it", id, e.Number)
 		}
 	}
