@@ -224,7 +224,7 @@ func switchSystem(templates, id string, entries []entry) error {
 		err = healthy(timeout)
 	}
 	if err != nil {
-		return fmt.Errorf("switch to %s failed: %w", name, err)
+		return undo(id, entries, target, before, timeout, err)
 	}
 
 	if err := os.WriteFile(liveFile, []byte(target.UsrHash+"\n"), 0o644); err != nil {
@@ -235,6 +235,39 @@ func switchSystem(templates, id string, entries []entry) error {
 		log.Print("kernel, initrd or kernel command line changed: they take effect at the next reboot")
 	}
 	return nil
+}
+
+// undo returns to the system that ran before a failed switch, and reboots if that fails too.
+func undo(id string, entries []entry, target entry, before, timeout string, cause error) error {
+	name := fmt.Sprintf("%s_%d", id, target.Number)
+	log.Printf("switch to %s failed: %v; returning to %s", name, cause, before)
+	result := name + " failed"
+	// the booted image stays bootable: it is what a reboot falls back to
+	if !target.Selected {
+		if err := os.Rename(target.Path, usedUp(target.Path)); err != nil {
+			log.Print(err)
+		} else {
+			result += " and is used up"
+		}
+	}
+	err := command(filepath.Join(before, "bin/switch-to-configuration"), "test")
+	if err == nil {
+		err = healthy(timeout)
+	}
+	if err != nil {
+		log.Printf("returning to %s failed: %v; rebooting", before, err)
+		if err := command(systemctl, "reboot"); err != nil {
+			return err
+		}
+		return errors.New(result)
+	}
+	result += ", " + before + " is active again"
+	for _, e := range entries {
+		if e.Selected && filepath.Dir(e.Init) != before {
+			result += fmt.Sprintf("; it is no longer installed: a reboot starts %s_%d, roll it out again to keep it", id, e.Number)
+		}
+	}
+	return errors.New(result)
 }
 
 // inTransientUnit runs the switch outside the caller's session, which the switch may end.

@@ -2,15 +2,20 @@
 let
   provisionedDisk = import ./provisioned-disk.nix { inherit pkgs; };
   build = name: { environment.etc."ab-build".text = name; };
+  # the machine ID systemd takes from the firmware: without one the journal of the boot before is another machine's
+  uuid = "a6b8e2c0-5f1d-4e3a-9b7c-1d2e3f405162";
   # 9p hands symlinks to the guest unresolved, so the share needs real files
   artifacts =
     nodes:
     pkgs.runCommand "switch-artifacts" { } ''
       mkdir $out
       ${lib.concatMapStrings (n: "cp -rL ${nodes.${n}.system.build.release}/update $out/${n}\n") [
+        "v1"
         "big"
         "a"
         "b"
+        "bad"
+        "poison"
       ]}
     '';
 in
@@ -28,6 +33,7 @@ in
     # a node's name and the MAC in its network's udev rules go into the initrd: one per image otherwise
     networking.hostName = "ab";
     virtualisation.vlans = [ ];
+    virtualisation.qemu.options = [ "-uuid ${uuid}" ];
     # in every image, so no switch restarts it: its mount namespace is as old as the boot
     systemd.services.sandboxed = {
       wantedBy = [ "multi-user.target" ];
@@ -69,6 +75,29 @@ in
     imports = [ (build "b") ];
     boot.kernelParams = [ "quiet" ];
   };
+  nodes.bad = {
+    imports = [ (build "bad") ];
+    systemd.services.unhealthy = {
+      requiredBy = [ "boot-complete.target" ];
+      before = [ "boot-complete.target" ];
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = "${pkgs.coreutils}/bin/false";
+      };
+    };
+  };
+  # breaks poison-check for good: no switch back removes the file
+  nodes.poison = {
+    imports = [ (build "poison") ];
+    systemd.services.poison = {
+      wantedBy = [ "multi-user.target" ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = "${pkgs.coreutils}/bin/touch /run/poison";
+      };
+    };
+  };
 
   testScript =
     { nodes, ... }:
@@ -108,6 +137,9 @@ in
 
       def uuid(h):
           return f"{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:]}"
+
+      def default():
+          return next(e["path"] for e in json.loads(v1.succeed("bootctl list --json=short")) if e.get("isDefault"))
 
       v1.start(allow_reboot=True)
       v1.wait_for_unit("multi-user.target")
@@ -159,6 +191,12 @@ in
           assert v1.succeed("cat /run/ab-update/live").strip() == h
           staged(n)
 
+      with subtest("ab-overlay works on a switched store and ends without taking it away"):
+          v1.succeed("ab-overlay", "echo edited >> /etc/issue", "ab-overlay status | grep -x +edited")
+          v1.succeed("umount -l /nix/store")
+          v1.fail("grep -x edited /etc/issue")
+          assert build() == "a"
+
       with subtest("a switch outlives the caller, and a second one fits into the boot"):
           n = install("b")
           v1.succeed("systemd-run --collect --unit=caller /bin/sh -c '/run/current-system/sw/bin/ab-update switch 2>&1 | /run/current-system/sw/bin/cat'")
@@ -169,11 +207,52 @@ in
           assert boot_id() == boot and build() == "b"
           v1.succeed("journalctl -t ab-update | grep 'next reboot'")
 
+      with subtest("a failed health check returns to the system before and uses the image up"):
+          n = install("bad")
+          out = v1.fail("ab-update switch 2>&1")
+          assert "no longer installed" in out, out
+          assert boot_id() == boot and build() == "b"
+          v1.succeed(f"test -f /boot/EFI/Linux/ab_{n}+0-3.efi")
+          assert default().endswith("/ab_1.efi")
+          assert v1.succeed("cat /run/ab-update/live").strip() == usrhash("b")
+          v1.succeed(f"journalctl -t ab-update | grep 'switch to ab_{n} failed'")
+
+      with subtest("the next image is numbered above the used-up one"):
+          used = n
+          n = install("a")
+          assert n == used + 1
+
+      with subtest("rolling out the booted image makes it boot next, and switch returns to it"):
+          assert "ab_1 boots next again" in v1.succeed("ab-update /mnt/v1")
+          v1.succeed(f"test -f /boot/EFI/Linux/ab_{n}+0-3.efi")
+          v1.succeed("ab-update switch")
+          assert boot_id() == boot and build() == "1"
+          assert v1.succeed("cat /run/ab-update/live").strip() == usrhash("v1")
+          n = install("b")
+          v1.succeed("ab-update switch")
+
       with subtest("a reboot starts the image that was switched to"):
           v1.reboot()
           v1.wait_for_unit("systemd-bless-boot.service")
           mount()
           assert boot_id() != boot and build() == "b"
           v1.succeed(f"test -f /boot/EFI/Linux/ab_{n}.efi", "grep -w quiet /proc/cmdline")
+
+      with subtest("a switch works in a boot that was counted"):
+          boot = boot_id()
+          n = install("a")
+          v1.succeed("ab-update switch")
+          assert boot_id() == boot and build() == "a"
+
+      with subtest("a system that stays unhealthy after the undo reboots into the booted image"):
+          n = install("poison")
+          v1.succeed("systemd-run --unit=poisoned /run/current-system/sw/bin/ab-update switch")
+          v1.wait_for_console_text("reboot: Restarting system")
+          v1.connected = False
+          v1.connect()
+          v1.wait_for_unit("multi-user.target")
+          assert boot_id() != boot and build() == "b"
+          v1.succeed(f"test -f /boot/EFI/Linux/ab_{n}+0-3.efi")
+          v1.succeed("journalctl -b -1 -t ab-update | grep rebooting")
     '';
 }
