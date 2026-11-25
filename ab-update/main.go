@@ -100,6 +100,11 @@ func run(templates, arg string) error {
 		return err
 	}
 	if !p.Install {
+		if p.UsedUp != "" {
+			if err := os.Rename(p.UsedUp, usedUp(p.UsedUp)); err != nil {
+				return err
+			}
+		}
 		fmt.Println(p.Message)
 		return nil
 	}
@@ -115,7 +120,7 @@ func run(templates, arg string) error {
 	if err := update(templates, &server{src: src, sums: renamed, files: files}, p.Running, "update", strconv.Itoa(p.Number)); err != nil {
 		return err
 	}
-	fmt.Printf("%s_%d boots next; reboot to activate it\n", id, p.Number)
+	fmt.Printf("%s_%d boots next; reboot or run ab-update switch to activate it\n", id, p.Number)
 	return nil
 }
 
