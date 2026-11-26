@@ -189,6 +189,23 @@ func TestLockHeld(t *testing.T) {
 	}
 }
 
+func TestHasFallback(t *testing.T) {
+	for list, want := range map[string]bool{
+		`[{"type":"type2","isSelected":true},{"type":"type2","triesLeft":0}]`:                  false,
+		`[{"type":"type2","isSelected":true},{"type":"type2","triesLeft":2}]`:                  true,
+		`[{"type":"type2","isSelected":true},{"type":"type2","path":"/EFI/Linux/rescue.efi"}]`: true,
+		`[{"type":"type2","isSelected":true,"triesLeft":2},{"type":"type1"},{"type":"auto"}]`:  false,
+	} {
+		got, err := hasFallback([]byte(list))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Errorf("hasFallback(%s) = %v, want %v", list, got, want)
+		}
+	}
+}
+
 func TestNextElapse(t *testing.T) {
 	for _, c := range []struct {
 		timers string

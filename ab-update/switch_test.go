@@ -126,6 +126,40 @@ func TestConfirm(t *testing.T) {
 	if err := <-read; err != nil {
 		t.Fatal(err)
 	}
+
+	// a fifo that replaces the one confirm found is the next switch's, which needs a login of its own
+	fresh := func() {
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+		if err := syscall.Mkfifo(path, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fresh()
+	confirmed := make(chan error)
+	go func() { confirmed <- confirm(path, 2*time.Second) }()
+	time.Sleep(100 * time.Millisecond)
+	fresh()
+	next := make(chan error, 1)
+	go func() {
+		_, err := os.ReadFile(path)
+		next <- err
+	}()
+	if <-confirmed == nil {
+		t.Fatal("replaced fifo: want an error")
+	}
+	select {
+	case <-next:
+		t.Fatal("the next switch was confirmed")
+	default:
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	<-next
 }
 
 func TestOneshot(t *testing.T) {

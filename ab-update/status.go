@@ -210,14 +210,23 @@ func status(format string) error {
 	}
 	r.BootStatus = strings.TrimSpace(string(s))
 	// as ab-rollback.service decides: a boot not blessed, and a UKI with tries to fall back to
-	fallback := slices.ContainsFunc(entries, func(e entry) bool { return !e.Selected && (e.TriesLeft == nil || *e.TriesLeft > 0) })
-	if (r.BootStatus == "indeterminate" || r.BootStatus == "dirty") && fallback {
-		timers, err := exec.Command(systemctl, "list-timers", "--all", "--output=json", "ab-rollback.timer").Output()
+	if r.BootStatus == "indeterminate" || r.BootStatus == "dirty" {
+		list, err := exec.Command(bootctl, "list", "--json=short").Output()
 		if err != nil {
-			return fmt.Errorf("systemctl list-timers: %w", err)
+			return fmt.Errorf("bootctl list: %w", err)
 		}
-		if r.RebootAt, err = nextElapse(timers); err != nil {
+		fallback, err := hasFallback(list)
+		if err != nil {
 			return err
+		}
+		if fallback {
+			timers, err := exec.Command(systemctl, "list-timers", "--all", "--output=json", "ab-rollback.timer").Output()
+			if err != nil {
+				return fmt.Errorf("systemctl list-timers: %w", err)
+			}
+			if r.RebootAt, err = nextElapse(timers); err != nil {
+				return err
+			}
 		}
 	}
 	units, err := exec.Command(systemctl, "list-units", "--state=failed", "--output=json").Output()
@@ -270,4 +279,22 @@ func status(format string) error {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", indent)
 	return enc.Encode(r)
+}
+
+// hasFallback applies the test of ab-rollback.service to bootctl list --json: another UKI, of any image, with tries left.
+func hasFallback(list []byte) (bool, error) {
+	var entries []struct {
+		Type       string
+		IsSelected bool
+		TriesLeft  *int
+	}
+	if err := json.Unmarshal(list, &entries); err != nil {
+		return false, fmt.Errorf("bootctl list: %w", err)
+	}
+	for _, e := range entries {
+		if e.Type == "type2" && !e.IsSelected && (e.TriesLeft == nil || *e.TriesLeft > 0) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
