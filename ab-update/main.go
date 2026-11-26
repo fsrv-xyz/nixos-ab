@@ -1,6 +1,6 @@
 // ab-update installs an image into the slot not running, numbered one above every UKI of the
 // image on the ESP, and leaves the work to systemd-sysupdate. Its switch activates that image
-// in the running system.
+// in the running system. Run as ab-status, it reports what runs, what booted and what boots next.
 package main
 
 import (
@@ -37,31 +37,31 @@ var rootHash = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 func main() {
 	log.SetFlags(0)
+	if filepath.Base(os.Args[0]) == "ab-status" {
+		statusMain()
+		return
+	}
 	log.SetPrefix("ab-update: ")
 	templates := flag.String("definitions", "/etc/ab-update", "`directory` of the transfer definition templates and the default source, url")
 	confirmed := flag.Bool("confirm", false, "with switch: undo it unless ab-update confirm runs within ab.rollback.timeout of its health check")
-	format := flag.String("json", "off", "with status: `mode` short or pretty prints JSON")
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "usage: ab-update [-definitions directory] [-confirm] [-json mode] [status | install | directory | URL | vacuum | switch | confirm]\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "usage: ab-update [-definitions directory] [-confirm] install | directory | URL | vacuum | switch | confirm\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
-	if flag.NArg() > 1 {
+	if flag.NArg() != 1 {
 		flag.Usage()
 		os.Exit(2)
 	}
-	if err := run(*templates, flag.Arg(0), *confirmed, *format); err != nil {
+	if err := run(*templates, flag.Arg(0), *confirmed); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(templates, arg string, confirmed bool, format string) error {
-	// before the lock, which the switch they confirm or report on holds
+func run(templates, arg string, confirmed bool) error {
+	// before the lock, which the switch it confirms holds
 	if arg == "confirm" {
 		return confirm(fifo)
-	}
-	if arg == "" || arg == "status" {
-		return status(format)
 	}
 	if arg == "switch" && os.Getenv(inUnit) == "" {
 		return inTransientUnit(templates, confirmed)

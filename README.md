@@ -223,11 +223,11 @@ image out again to keep it.
 
 ### Status
 
-`ab-update status`, or `ab-update` alone, shows what boots next, what booted and
-what runs, laid out as `bootc status` does:
+`ab-status` shows what boots next, what booted and what runs, laid out as
+`bootc status` does:
 
 ```
-$ ab-update status
+$ ab-status
 State: idle
 
   Staged image: router_4
@@ -249,7 +249,7 @@ while a switch runs, it still names the one before. `Boot status` is that of
 reboots it, and the failed units. Other UKIs show as `Rollback image`, or as
 `Used-up image` once systemd-boot skips them.
 
-`ab-update -json=short status`, or `pretty`, gives the same as JSON for
+`ab-status -json=short`, or `pretty`, gives the same as JSON for
 scripts; the text is for people and may change.
 
 ## State
@@ -385,7 +385,7 @@ numbers the next image above the used-up one, keeping `/state` throughout;
 `ab-overlay` changes and deletes store files until a reboot. A second VM
 switches to updates without a reboot, more than once per boot, returns from one
 that fails its health check or waits for a confirmation in vain and reboots when
-that return fails too, and `ab-update status` reports each of these states. A third VM
+that return fails too, and `ab-status` reports each of these states. A third VM
 provisions a file into a plain state partition. `new-host` runs with throwaway
 keys and checks who can decrypt what. `install-host` writes a host to the disk
 of a rescue VM, which then boots it as the host, and `update-host` updates it

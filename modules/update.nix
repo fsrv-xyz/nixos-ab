@@ -72,6 +72,7 @@ let
       "-X main.cp=${pkgs.coreutils}/bin/cp"
       "-X main.cat=${pkgs.coreutils}/bin/cat"
     ];
+    postInstall = "ln -s ab-update $out/bin/ab-status";
     meta.mainProgram = "ab-update";
   };
 in
