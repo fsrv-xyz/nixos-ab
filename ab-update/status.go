@@ -59,10 +59,11 @@ func images(id string, entries []entry, booted string) []image {
 		switch {
 		case e.Selected:
 			img.Role = "booted"
-		case usedUp(e):
-			img.Role = "used-up"
+		// bootctl set-oneshot boots a used-up UKI too
 		case e.Default:
 			img.Role = "staged"
+		case usedUp(e):
+			img.Role = "used-up"
 		}
 		if e.TriesLeft != nil && !usedUp(e) {
 			// systemd-boot sorts an entry without tries left last, behind the next lower one

@@ -353,10 +353,10 @@ in
           assert boot_id() == boot and build() == "1"
           assert v1.succeed("cat /run/ab-update/live").strip() == usrhash("v1")
           n = install("b")
-          # once, when status sees the switch wait: a confirm before that fails
+          # once status sees the switch wait; cat may not have opened the fifo yet
           v1.succeed(
               "systemd-run --unit=confirmer --setenv=PATH=/run/current-system/sw/bin"
-              " /bin/sh -c 'until ab-update status | grep -q \"^State: waiting\"; do sleep 1; done; ab-update confirm'"
+              " /bin/sh -c 'until ab-update status | grep -q \"^State: waiting\"; do sleep 1; done; until ab-update confirm; do sleep 1; done'"
           )
           v1.succeed("ab-update -confirm switch")
           assert build() == "b"

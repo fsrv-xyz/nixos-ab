@@ -54,6 +54,18 @@ func TestImages(t *testing.T) {
 			},
 		},
 		{
+			"a used-up UKI chosen for the next boot, as bootctl set-oneshot does",
+			[]entry{
+				{Number: 5, UsrHash: "e", Default: true, TriesLeft: tries(0), TriesDone: tries(3)},
+				{Number: 1, UsrHash: "a", Selected: true},
+			},
+			"a",
+			[]image{
+				{Name: "ab_5", Role: "staged", UsrHash: "e", TriesLeft: tries(0), TriesDone: tries(3)},
+				{Name: "ab_1", Role: "booted", UsrHash: "a"},
+			},
+		},
+		{
 			"booted from a UKI no longer on the ESP",
 			[]entry{{Number: 4, UsrHash: "d", Default: true, TriesLeft: tries(3), TriesDone: tries(0)}},
 			"f",
