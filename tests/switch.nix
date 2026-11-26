@@ -201,7 +201,7 @@ in
           return next(e["path"] for e in json.loads(v1.succeed("bootctl list --json=short")) if e.get("isDefault"))
 
       def status():
-          return json.loads(v1.succeed("ab-update -json=short status"))
+          return json.loads(v1.succeed("ab-status -json=short"))
 
       v1.start(allow_reboot=True)
       v1.wait_for_unit("multi-user.target")
@@ -278,7 +278,7 @@ in
               ("ab_1", "booted", None, None),
           ], s
           assert s["storeInRAM"] > 0 and not s["rebootNeeded"], s
-          out = v1.succeed("ab-update status")
+          out = v1.succeed("ab-status")
           assert "● Booted image: ab_1" in out and f"Live: ab_{n} since" in out, out
 
       with subtest("ab-overlay works on a switched store and ends without taking it away"):
@@ -356,7 +356,7 @@ in
           # once status sees the switch wait; cat may not have opened the fifo yet
           v1.succeed(
               "systemd-run --unit=confirmer --setenv=PATH=/run/current-system/sw/bin"
-              " /bin/sh -c 'until ab-update status | grep -q \"^State: waiting\"; do sleep 1; done; until ab-update confirm; do sleep 1; done'"
+              " /bin/sh -c 'until ab-status | grep -q \"^State: waiting\"; do sleep 1; done; until ab-update confirm; do sleep 1; done'"
           )
           v1.succeed("ab-update -confirm switch")
           assert build() == "b"

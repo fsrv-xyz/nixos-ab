@@ -4,9 +4,11 @@ import (
 	"cmp"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -175,6 +177,23 @@ func nextElapse(timers []byte) (*time.Time, error) {
 }
 
 // status reports what runs, what booted and what boots next: for people, or with format short or pretty as JSON.
+func statusMain() {
+	log.SetPrefix("ab-status: ")
+	format := flag.String("json", "off", "`mode` short or pretty prints JSON")
+	flag.Usage = func() {
+		fmt.Fprintf(flag.CommandLine.Output(), "usage: ab-status [-json mode]\n")
+		flag.PrintDefaults()
+	}
+	flag.Parse()
+	if flag.NArg() > 0 {
+		flag.Usage()
+		os.Exit(2)
+	}
+	if err := status(*format); err != nil {
+		log.Fatal(err)
+	}
+}
+
 func status(format string) error {
 	indent := ""
 	switch format {

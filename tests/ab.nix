@@ -173,8 +173,9 @@ in
       with subtest("update to v2 via HTTP"):
           serve("v2")
           assert v1.succeed("ls /etc/ab-update").split() == ["10-store-verity.transfer", "20-store.transfer", "90-uki.transfer", "rollback-timeout", "url"]
-          # alone, it only reports: the install below is the first
-          out = v1.succeed("ab-update")
+          # alone, it installs nothing: the install below is the first
+          assert "usage: ab-update" in v1.fail("ab-update 2>&1")
+          out = v1.succeed("ab-status")
           assert out.startswith("State: idle\n") and "● Booted image: ab_1" in out, out
           assert "as ab_2" in v1.succeed("ab-update install")
           v1.succeed("test -f /boot/EFI/Linux/ab_2+3-0.efi")
