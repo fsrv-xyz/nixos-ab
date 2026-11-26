@@ -151,6 +151,11 @@ in
       def update():
           return client.succeed("update-host --reboot root@rescue ${update} 2>&1", timeout=900)
 
+      def generation():
+          # -n: ssh reads stdin, the shell's terminal, until the channel closes, after closing stdout:
+          # without it, it can take the line the driver types next
+          return client.succeed("ssh -n root@rescue cat /etc/generation")
+
       with subtest("update-host installs an update and waits for its blessed boot"):
           # rescue's key was recorded under this name
           client.succeed("ssh-keygen -R rescue")
@@ -160,7 +165,7 @@ in
           device.connected = False
           device.connect()
           assert "boots next" in out and "blessed" in out, out
-          assert client.succeed("ssh root@rescue cat /etc/generation") == "update"
+          assert generation() == "update"
 
       with subtest("update-host does not reboot into the image already running"):
           assert "runs this image already" in update()
@@ -174,13 +179,13 @@ in
           device.wait_until_succeeds("systemctl is-failed stale")
           out = client.fail("update-host --switch root@rescue ${switched} 2>&1")
           assert "fails its health check" in out, out
-          assert client.succeed("ssh root@rescue cat /etc/generation") == "update"
+          assert generation() == "update"
           device.succeed("systemctl reset-failed stale")
 
       with subtest("update-host --switch activates an update within the boot"):
           out = client.succeed("update-host --switch root@rescue ${switched} 2>&1", timeout=900)
           assert "boots next" in out and "without a reboot" in out, out
-          assert client.succeed("ssh root@rescue cat /etc/generation") == "switched"
+          assert generation() == "switched"
           assert boot_id() == boot
 
       def hook(script):
@@ -198,7 +203,7 @@ in
           hook('case $BASH_EXECUTION_STRING in *"is-active ab-update-switch"*) sleep 60 ;; esac')
           out = client.fail("update-host --switch root@rescue ${cut} 2>&1", timeout=900)
           assert "no ab-update confirm" in out and "did not switch to this image" in out, out
-          assert client.succeed("ssh root@rescue cat /etc/generation") == "switched"
+          assert generation() == "switched"
           assert boot_id() == boot
           device.succeed("rm /run/test-hook")
 
@@ -207,7 +212,7 @@ in
           assert "rebooting" in out and "blessed" in out, out
           device.connected = False
           device.connect()
-          assert client.succeed("ssh root@rescue cat /etc/generation") == "switched"
+          assert generation() == "switched"
           assert boot_id() != boot
 
       with subtest("update-host --switch fails when the device reboots instead"):
@@ -231,7 +236,7 @@ in
           assert "rebooting" in out and "blessed" in out, out
           device.connected = False
           device.connect()
-          assert client.succeed("ssh root@rescue cat /etc/generation") == "update"
+          assert generation() == "update"
           assert boot_id() != boot
     '';
 }
