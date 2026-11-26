@@ -200,6 +200,9 @@ in
       def default():
           return next(e["path"] for e in json.loads(v1.succeed("bootctl list --json=short")) if e.get("isDefault"))
 
+      def status():
+          return json.loads(v1.succeed("ab-update -json=short status"))
+
       v1.start(allow_reboot=True)
       v1.wait_for_unit("multi-user.target")
       mount()
@@ -217,12 +220,19 @@ in
           v1.wait_until_succeeds("pgrep -f '^/run/current-system/sw/bin/sleep 600$'")
           assert "another ab-update is running" in v1.fail("ab-update /mnt/same 2>&1")
           assert "another ab-update is running" in v1.fail("ab-update switch 2>&1")
+          assert status()["state"] == "busy"
           v1.succeed("systemctl stop holder")
+          # what a killed switch leaves behind: no lock holder waits on it, and the next ab-update removes it
+          v1.succeed("mkfifo /run/ab-update/confirm")
+          assert status()["state"] == "idle"
+          v1.succeed("ab-update /mnt/same")
+          v1.fail("test -e /run/ab-update/confirm")
 
       with subtest("ab-overlay blocks a switch"):
           n = install("big")
           v1.succeed("ab-overlay")
           assert "ab-overlay is active" in v1.fail("ab-update switch 2>&1")
+          assert status()["storeOverlay"]
           v1.succeed("umount -l /nix/store")
 
       with subtest("a delta beyond half of the available memory is refused and stays staged"):
@@ -261,6 +271,15 @@ in
           v1.fail("findmnt /run/ab-update/slot")
           assert v1.succeed("cat /run/ab-update/live").strip() == h
           staged(n)
+          s = status()
+          assert (s["live"]["name"], s["live"]["usrhash"]) == (f"ab_{n}", h), s
+          assert [(i["name"], i["role"], i.get("triesLeft"), i.get("fallback")) for i in s["images"]] == [
+              (f"ab_{n}", "staged", 3, "ab_1"),
+              ("ab_1", "booted", None, None),
+          ], s
+          assert s["storeInRAM"] > 0 and not s["rebootNeeded"], s
+          out = v1.succeed("ab-update status")
+          assert "● Booted image: ab_1" in out and f"Live: ab_{n} since" in out, out
 
       with subtest("ab-overlay works on a switched store and ends without taking it away"):
           v1.succeed("ab-overlay", "echo edited >> /etc/issue", "ab-overlay status | grep -x +edited")
@@ -276,6 +295,7 @@ in
           v1.wait_until_fails("systemctl is-active ab-update-switch.service")
           assert boot_id() == boot and build() == "b"
           v1.succeed("journalctl -t ab-update | grep 'next reboot'")
+          assert status()["rebootNeeded"]
 
       with subtest("a switch that waits for a confirmation is undone without one"):
           assert "no switch awaits a confirmation" in v1.fail("ab-update confirm 2>&1")
@@ -295,6 +315,10 @@ in
           assert default().endswith("/ab_1.efi")
           assert v1.succeed("cat /run/ab-update/live").strip() == usrhash("b")
           v1.succeed(f"journalctl -t ab-update | grep 'switch to ab_{n} failed'")
+          s = status()
+          assert [(i["name"], i["role"]) for i in s["images"]] == [("ab_1", "booted"), (f"ab_{n}", "used-up")], s
+          # its UKI gave way to the images installed since
+          assert s["live"]["usrhash"] == usrhash("b") and "name" not in s["live"], s
 
       with subtest("a pre-switch check that does not return is refused when its time is up"):
           n = install("stuck")
@@ -329,10 +353,10 @@ in
           assert boot_id() == boot and build() == "1"
           assert v1.succeed("cat /run/ab-update/live").strip() == usrhash("v1")
           n = install("b")
-          # what update-host does over logins of its own
+          # once status sees the switch wait; cat may not have opened the fifo yet
           v1.succeed(
               "systemd-run --unit=confirmer --setenv=PATH=/run/current-system/sw/bin"
-              " /bin/sh -c 'until ab-update confirm; do sleep 1; done'"
+              " /bin/sh -c 'until ab-update status | grep -q \"^State: waiting\"; do sleep 1; done; until ab-update confirm; do sleep 1; done'"
           )
           v1.succeed("ab-update -confirm switch")
           assert build() == "b"
@@ -344,6 +368,7 @@ in
           mount()
           assert boot_id() != boot and build() == "b"
           v1.succeed(f"test -f /boot/EFI/Linux/ab_{n}.efi", "grep -w quiet /proc/cmdline")
+          assert status()["bootStatus"] == "good"
 
       with subtest("a switch works in a boot that was counted"):
           boot = boot_id()

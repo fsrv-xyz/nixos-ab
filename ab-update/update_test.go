@@ -20,7 +20,7 @@ const (
 func TestParseEntries(t *testing.T) {
 	data := []byte(`[
 		{"type":"type2","path":"/boot/EFI/Linux/ab_3.efi","cmdline":"init=/x usrhash=` + hashA + `","isDefault":false,"isSelected":true},
-		{"type":"type2","path":"/boot/EFI/Linux/ab_4+2-1.efi","cmdline":"usrhash=` + hashB + ` quiet","isDefault":true,"isSelected":false},
+		{"type":"type2","path":"/boot/EFI/Linux/ab_4+2-1.efi","cmdline":"usrhash=` + hashB + ` quiet","isDefault":true,"isSelected":false,"triesLeft":2,"triesDone":1},
 		{"type":"type2","path":"/boot/EFI/Linux/other_7.efi","cmdline":"usrhash=` + hashC + `"},
 		{"type":"type1","path":"/boot/loader/entries/ab_9.conf"},
 		{"type":"auto","id":"auto-reboot-to-firmware-setup"}
@@ -31,7 +31,7 @@ func TestParseEntries(t *testing.T) {
 	}
 	want := []entry{
 		{Number: 3, UsrHash: hashA, Init: "/x", Path: "/boot/EFI/Linux/ab_3.efi", Selected: true},
-		{Number: 4, UsrHash: hashB, Path: "/boot/EFI/Linux/ab_4+2-1.efi", Default: true},
+		{Number: 4, UsrHash: hashB, Path: "/boot/EFI/Linux/ab_4+2-1.efi", Default: true, TriesLeft: tries(2), TriesDone: tries(1)},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v, want %+v", got, want)

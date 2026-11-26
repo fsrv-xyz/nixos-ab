@@ -272,7 +272,11 @@ func runs(hash string) error {
 	if err := os.MkdirAll(runDir, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(liveFile, []byte(hash+"\n"), 0o644)
+	// replaced, not rewritten: status and update-host read it at any time
+	if err := os.WriteFile(liveFile+".new", []byte(hash+"\n"), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(liveFile+".new", liveFile)
 }
 
 // timed gives a command the time a boot has: switch-to-configuration and systemctl wait for

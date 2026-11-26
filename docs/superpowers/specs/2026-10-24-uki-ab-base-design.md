@@ -317,3 +317,32 @@ switch, as only a new login from there shows that it still gets in.
     serves a login from before the switch only once it waits.
 19. `update-host --switch` installs nothing on a device whose `ab-update` knows no
     `-confirm`.
+
+## Status (2026-11-26)
+
+### Intent
+
+After a switch a device runs another image than it booted, and `bootctl status` names the
+booted one; what runs, what boots next and whether a switch waits is spread over five
+places (user). One command shows it, for people and, as JSON, for scripts (user).
+
+### Decided how
+
+| Topic | Decision | By |
+|---|---|---|
+| Layout | `bootc status`: a block per UKI, its role in the header (staged, booted, rollback, used-up), keys right-aligned to it; `●` for the booted image as bootc, rpm-ostree and systemctl, `×` for a used-up one as systemd's failed and updatectl's obsolete | my call from the tools compared, approved by the user |
+| Switch | rpm-ostree after `apply-live`: rows on the booted image, `Live` the image the last switch activated (`/run/ab-update/live`), `Kernel` when kernel, initrd or command line of that image wait for a reboot (Codex review) | my call from the tools compared, approved by the user |
+| State | rpm-ostree's first line: `idle`; `busy` while a process holds the flock of `/run/ab-update.lock`, read from `/proc/locks` so that status never takes it; `waiting`, since its mtime, while the fifo of a confirmation exists as well and the switch's `cat` runs, found in `/proc` by its command line: a killed switch leaves the fifo behind until the next ab-update takes the lock and removes it, and the switch creates it before systemd-run starts `cat`, while an `ab-update confirm` before that fails (Codex review). Not a confirm that waits for the reader: by the path it can confirm a next switch, whose fifo may even get the same inode (Codex review, CI) | my call |
+| Boot | `systemd-bless-boot status` verbatim, as RAUC shows the boot status; when `ab-rollback.timer` elapses (`systemctl list-timers --output=json`) only where `ab-rollback.service` reboots, `indeterminate` or `dirty` with a UKI of any image to fall back to (Codex review); the failed units | my call |
+| JSON | `-json=short\|pretty`, as `bootctl --json=` that ab-update reads itself; the text is for people, as bootc and updatectl say of theirs | user, my call for the form |
+| Default | `ab-update` without an argument shows the status, as `bootctl` and `systemd-sysupdate` show theirs; installing from `ab.update.url` takes `ab-update install`: the project's word for it, and `update` would read as the `update/` directory of a release, a source too | user, my call for the word |
+| Left out | an exit code (rpm-ostree's `--pending-exit-77` is opt-in), versions on the server (`updatectl list`), ASCII glyphs without a UTF-8 locale, the window of a confirmation: the switch has it only as systemd's time span, and the activation may change the configured one (Codex review); a fallback among the UKIs of another image, whose place in systemd-boot's order status does not work out (Codex review) | my call |
+
+### Success = the VM tests pass, with these added
+
+20. `ab-update status` reports a held lock as busy, an active ab-overlay, the image a
+    switch activated beside the booted one, a staged image's tries and fallback, a kernel
+    that waits for a reboot, a used-up image, a live image whose UKI is gone and a blessed
+    counted boot; a confirmation sent once status sees the switch wait keeps the switch.
+21. `ab-update` without an argument reports the status and installs nothing;
+    `ab-update install` installs from `ab.update.url`.
