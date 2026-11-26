@@ -222,7 +222,11 @@ in
           assert "another ab-update is running" in v1.fail("ab-update switch 2>&1")
           assert status()["state"] == "busy"
           v1.succeed("systemctl stop holder")
+          # what a killed switch leaves behind: no lock holder waits on it, and the next ab-update removes it
+          v1.succeed("mkfifo /run/ab-update/confirm")
           assert status()["state"] == "idle"
+          v1.succeed("ab-update /mnt/same")
+          v1.fail("test -e /run/ab-update/confirm")
 
       with subtest("ab-overlay blocks a switch"):
           n = install("big")

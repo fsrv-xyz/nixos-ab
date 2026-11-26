@@ -173,6 +173,8 @@ func lock() error {
 		return errors.New("another ab-update is running")
 	}
 	lockFile = f
+	// what a killed switch left behind: with the lock, no switch waits on it
+	os.Remove(fifo)
 	return nil
 }
 

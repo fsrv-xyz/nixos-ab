@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -231,8 +232,13 @@ func status(format string) error {
 		r.FailedUnits = append(r.FailedUnits, u.Unit)
 	}
 
-	if info, err := os.Stat(liveFile); err == nil {
-		b, err := os.ReadFile(liveFile)
+	if f, err := os.Open(liveFile); err == nil {
+		defer f.Close()
+		info, err := f.Stat()
+		if err != nil {
+			return err
+		}
+		b, err := io.ReadAll(f)
 		if err != nil {
 			return err
 		}
