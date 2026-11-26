@@ -336,6 +336,7 @@ places (user). One command shows it, for people and, as JSON, for scripts (user)
 | Boot | `systemd-bless-boot status` verbatim, as RAUC shows the boot status; when `ab-rollback.timer` elapses (`systemctl list-timers --output=json`) only where `ab-rollback.service` reboots, `indeterminate` or `dirty` with a UKI to fall back to (Codex review); the failed units | my call |
 | Confirm | `ab-update confirm` gives the reader of the fifo five seconds to come: the switch creates the fifo before systemd-run starts `cat`, so a confirm right after status saw the wait could fail (Codex review) | my call |
 | JSON | `-json=short\|pretty`, as `bootctl --json=` that ab-update reads itself; the text is for people, as bootc and updatectl say of theirs | user, my call for the form |
+| Default | `ab-update` without an argument shows the status, as `bootctl` and `systemd-sysupdate` show theirs; installing from `ab.update.url` takes `ab-update install`: the project's word for it, and `update` would read as the `update/` directory of a release, a source too | user, my call for the word |
 | Left out | an exit code (rpm-ostree's `--pending-exit-77` is opt-in), versions on the server (`updatectl list`), ASCII glyphs without a UTF-8 locale, the window of a confirmation: the switch has it only as systemd's time span, and the activation may change the configured one (Codex review) | my call |
 
 ### Success = the VM tests pass, with these added
@@ -344,3 +345,5 @@ places (user). One command shows it, for people and, as JSON, for scripts (user)
     switch activated beside the booted one, a staged image's tries and fallback, a kernel
     that waits for a reboot, a used-up image, a live image whose UKI is gone and a blessed
     counted boot; a confirmation sent once status sees the switch wait keeps the switch.
+21. `ab-update` without an argument reports the status and installs nothing;
+    `ab-update install` installs from `ab.update.url`.

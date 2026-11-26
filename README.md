@@ -39,7 +39,7 @@ sysupdate features used here; the tests run on nixos-26.05 (systemd 260).
 | `ab.stateSizeMiB` | `null` | size of the [state partition](#state), none if `null`; a larger one grows it |
 | `ab.stateJournal` | `false` | keep the journal on the state partition |
 | `ab.stateEncryption` | `null` | `"tpm2"`: encrypt the state partition with a key sealed to the TPM |
-| `ab.update.url` | `null` | default source of `ab-update` |
+| `ab.update.url` | `null` | source of `ab-update install` |
 | `ab.rollback.timeout` | `"5min"` | time a counted boot has to reach `boot-complete.target` |
 
 Leave `system.image.version` unset: `ab-update` numbers the images on the device.
@@ -116,7 +116,7 @@ Then, on the device, install it from `ab.update.url`, another URL or a
 directory such as a copy or a USB stick, and reboot when you choose:
 
 ```sh
-ab-update                                # from ab.update.url
+ab-update install                        # from ab.update.url
 ab-update https://updates.example/router/
 ab-update /path/to/update
 systemctl reboot
@@ -171,7 +171,7 @@ refuses to retry until it is cleared: run `ab-update vacuum` first.
 `ab-update switch` makes the running system the image that boots next:
 
 ```sh
-ab-update && ab-update switch
+ab-update install && ab-update switch
 ```
 
 It opens the image's slot only to copy the store paths the running system lacks
@@ -223,8 +223,8 @@ image out again to keep it.
 
 ### Status
 
-`ab-update status` shows what boots next, what booted and what runs, laid out
-as `bootc status` does:
+`ab-update status`, or `ab-update` alone, shows what boots next, what booted and
+what runs, laid out as `bootc status` does:
 
 ```
 $ ab-update status

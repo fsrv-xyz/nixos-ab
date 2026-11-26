@@ -161,7 +161,7 @@ in
       with subtest("interrupted update adds no partitions and vacuums clean"):
           serve("v2")
           before = partitions()
-          v1.succeed("systemd-run --unit=interrupted /run/current-system/sw/bin/ab-update")
+          v1.succeed("systemd-run --unit=interrupted /run/current-system/sw/bin/ab-update install")
           v1.wait_until_succeeds("pgrep -f '[s]tore.raw.zst'")
           v1.succeed("systemctl kill --signal=KILL interrupted")
           v1.reboot()
@@ -173,7 +173,10 @@ in
       with subtest("update to v2 via HTTP"):
           serve("v2")
           assert v1.succeed("ls /etc/ab-update").split() == ["10-store-verity.transfer", "20-store.transfer", "90-uki.transfer", "rollback-timeout", "url"]
-          assert "as ab_2" in v1.succeed("ab-update")
+          # alone, it only reports: the install below is the first
+          out = v1.succeed("ab-update")
+          assert out.startswith("State: idle\n") and "● Booted image: ab_1" in out, out
+          assert "as ab_2" in v1.succeed("ab-update install")
           v1.succeed("test -f /boot/EFI/Linux/ab_2+3-0.efi")
           v1.reboot()
           v1.wait_for_unit("systemd-bless-boot.service")
@@ -190,7 +193,7 @@ in
       with subtest("the running image is not installed again"):
           serve("v2")
           before = partitions()
-          assert "ab_2 runs this image already" in v1.succeed("ab-update")
+          assert "ab_2 runs this image already" in v1.succeed("ab-update install")
           assert partitions() == before
 
       with subtest("update to v3 via local directory into slot A"):
@@ -209,7 +212,7 @@ in
 
       with subtest("bad v4 rolls back to v3 unattended"):
           serve("v4")
-          assert "as ab_4" in v1.succeed("ab-update")
+          assert "as ab_4" in v1.succeed("ab-update install")
           v1.reboot()
           # every boot greets on the shell socket; an unread greeting garbles the next command's output
           for _ in range(3):
@@ -237,7 +240,7 @@ in
 
       with subtest("after a rollback the next image is numbered above the used-up one"):
           serve("v2")
-          assert "as ab_5" in v1.succeed("ab-update")
+          assert "as ab_5" in v1.succeed("ab-update install")
           v1.succeed("test -f /boot/EFI/Linux/ab_5+3-0.efi -a ! -e /boot/EFI/Linux/ab_4+0-3.efi")
           assert slot("ab_3") == slot("ab_5") == SLOT_MIB
     '';

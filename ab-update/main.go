@@ -43,7 +43,7 @@ func main() {
 	confirmed := flag.Bool("confirm", false, "with switch: undo it unless ab-update confirm runs within ab.rollback.timeout of its health check")
 	format := flag.String("json", "off", "with status: `mode` short or pretty prints JSON")
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "usage: ab-update [-definitions directory] [-confirm] [-json mode] [directory | URL | vacuum | switch | confirm | status]\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "usage: ab-update [-definitions directory] [-confirm] [-json mode] [status | install | directory | URL | vacuum | switch | confirm]\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -61,7 +61,7 @@ func run(templates, arg string, confirmed bool, format string) error {
 	if arg == "confirm" {
 		return confirm(fifo, 5*time.Second)
 	}
-	if arg == "status" {
+	if arg == "" || arg == "status" {
 		return status(format)
 	}
 	if arg == "switch" && os.Getenv(inUnit) == "" {
@@ -88,10 +88,10 @@ func run(templates, arg string, confirmed bool, format string) error {
 	}
 
 	location := arg
-	if location == "" {
+	if location == "install" {
 		b, err := os.ReadFile(filepath.Join(templates, "url"))
 		if errors.Is(err, fs.ErrNotExist) {
-			return errors.New("no source given, and ab.update.url is unset")
+			return errors.New("ab.update.url is unset: name a directory or URL")
 		} else if err != nil {
 			return err
 		}

@@ -80,7 +80,7 @@ in
     type = lib.types.nullOr lib.types.str;
     default = null;
     example = "https://updates.example/router";
-    description = "Default source of `ab-update`: a URL serving the `update/` directory of a release.";
+    description = "Source of `ab-update install`: a URL serving the `update/` directory of a release.";
   };
 
   config = {
