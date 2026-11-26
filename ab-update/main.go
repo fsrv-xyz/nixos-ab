@@ -18,7 +18,6 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"time"
 )
 
 // Set at link time to the system's programs.
@@ -59,7 +58,7 @@ func main() {
 func run(templates, arg string, confirmed bool, format string) error {
 	// before the lock, which the switch they confirm or report on holds
 	if arg == "confirm" {
-		return confirm(fifo, 5*time.Second)
+		return confirm(fifo)
 	}
 	if arg == "" || arg == "status" {
 		return status(format)

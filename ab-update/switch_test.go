@@ -104,62 +104,26 @@ func TestBlessed(t *testing.T) {
 
 func TestConfirm(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "confirm")
-	if confirm(path, time.Second) == nil {
+	if confirm(path) == nil {
 		t.Fatal("no fifo: want an error")
 	}
 	if err := syscall.Mkfifo(path, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if confirm(path, 0) == nil {
+	if confirm(path) == nil {
 		t.Fatal("no reader: want an error")
 	}
 	read := make(chan error)
 	go func() {
-		// after the fifo, as the switch starts its reader
-		time.Sleep(100 * time.Millisecond)
 		_, err := os.ReadFile(path)
 		read <- err
 	}()
-	if err := confirm(path, 5*time.Second); err != nil {
-		t.Fatal(err)
+	for confirm(path) != nil {
+		time.Sleep(10 * time.Millisecond)
 	}
 	if err := <-read; err != nil {
 		t.Fatal(err)
 	}
-
-	// a fifo that replaces the one confirm found is the next switch's, which needs a login of its own
-	fresh := func() {
-		if err := os.Remove(path); err != nil {
-			t.Fatal(err)
-		}
-		if err := syscall.Mkfifo(path, 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	fresh()
-	confirmed := make(chan error)
-	go func() { confirmed <- confirm(path, 2*time.Second) }()
-	time.Sleep(100 * time.Millisecond)
-	fresh()
-	next := make(chan error, 1)
-	go func() {
-		_, err := os.ReadFile(path)
-		next <- err
-	}()
-	if <-confirmed == nil {
-		t.Fatal("replaced fifo: want an error")
-	}
-	select {
-	case <-next:
-		t.Fatal("the next switch was confirmed")
-	default:
-	}
-	f, err := os.OpenFile(path, os.O_WRONLY, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.Close()
-	<-next
 }
 
 func TestOneshot(t *testing.T) {

@@ -17,7 +17,6 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"time"
 )
 
 const (
@@ -257,30 +256,15 @@ func awaitConfirmation(timeout string) error {
 }
 
 // confirm ends the wait of a switch: a fifo opens for writing only while it is read, so it fails when none waits.
-// The switch starts the reader after it creates the fifo: confirm gives it patience to come.
-func confirm(path string, patience time.Duration) error {
-	none := errors.New("no switch awaits a confirmation")
-	found, err := os.Stat(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return none
-	} else if err != nil {
+func confirm(path string) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|syscall.O_NONBLOCK, 0)
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENXIO) {
+		return errors.New("no switch awaits a confirmation")
+	}
+	if err != nil {
 		return err
 	}
-	deadline := time.Now().Add(patience)
-	for {
-		f, err := os.OpenFile(path, os.O_WRONLY|syscall.O_NONBLOCK, 0)
-		if err == nil {
-			return f.Close()
-		}
-		if !errors.Is(err, syscall.ENXIO) && !errors.Is(err, fs.ErrNotExist) {
-			return err
-		}
-		time.Sleep(50 * time.Millisecond)
-		// the fifo it found only: a switch that replaced it needs a login of its own
-		if again, err := os.Stat(path); err != nil || !os.SameFile(found, again) || time.Now().After(deadline) {
-			return none
-		}
-	}
+	return f.Close()
 }
 
 // runs records the image the running system is, for update-host to ask the device.

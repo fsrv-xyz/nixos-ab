@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -223,5 +225,27 @@ func TestNextElapse(t *testing.T) {
 		if !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%s: got %v, want %v", c.timers, got, c.want)
 		}
+	}
+}
+
+func TestFifoRead(t *testing.T) {
+	proc := t.TempDir()
+	process := func(pid, cmdline string) {
+		if err := os.MkdirAll(filepath.Join(proc, pid), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(proc, pid, "cmdline"), []byte(cmdline), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	process("1", "/sbin/init\x00")
+	process("self", "/bin/cat\x00/run/ab-update/confirm\x00")
+	process("7", "/bin/cat\x00/run/ab-update/confirm.old\x00")
+	if fifoRead(proc, "/bin/cat", "/run/ab-update/confirm") {
+		t.Fatal("no cat reads it: want false")
+	}
+	process("812", "/bin/cat\x00/run/ab-update/confirm\x00")
+	if !fifoRead(proc, "/bin/cat", "/run/ab-update/confirm") {
+		t.Fatal("cat reads it: want true")
 	}
 }

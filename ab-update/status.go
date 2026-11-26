@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -197,7 +198,7 @@ func status(format string) error {
 		if st := info.Sys().(*syscall.Stat_t); lockHeld(locks, st.Dev, st.Ino) {
 			r.State = "busy"
 			// with the lock: a switch that was killed leaves its fifo behind
-			if info, err := os.Stat(fifo); err == nil && info.Mode().Type() == fs.ModeNamedPipe {
+			if info, err := os.Stat(fifo); err == nil && info.Mode().Type() == fs.ModeNamedPipe && fifoRead("/proc", cat, fifo) {
 				since := info.ModTime()
 				r.State, r.WaitingSince = "waiting", &since
 			}
@@ -256,12 +257,14 @@ func status(format string) error {
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
+	// of the image Live names: while a switch runs, /run/current-system may be the next one already
+	toplevel := "/run/current-system"
 	for _, e := range entries {
-		if e.UsrHash == r.Live.UsrHash {
-			r.Live.Name = fmt.Sprintf("%s_%d", id, e.Number)
+		if e.UsrHash == r.Live.UsrHash && e.Init != "" {
+			r.Live.Name, toplevel = fmt.Sprintf("%s_%d", id, e.Number), filepath.Dir(e.Init)
 		}
 	}
-	r.RebootNeeded = rebootNeeded("/run/booted-system", "/run/current-system")
+	r.RebootNeeded = rebootNeeded("/run/booted-system", toplevel)
 	// a switch may be copying or removing a delta meanwhile
 	if deltas, err := names(deltaDir); err == nil {
 		r.StoreInRAM, _ = treeSize(deltaDir, deltas)
@@ -297,4 +300,16 @@ func hasFallback(list []byte) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// fifoRead tells whether a process in proc runs the reader of the fifo. The switch starts its cat only
+// after it created the fifo, and an ab-update confirm before cat opens it fails; cat opens it right away.
+func fifoRead(proc, reader, path string) bool {
+	cmdlines, _ := filepath.Glob(filepath.Join(proc, "[0-9]*", "cmdline"))
+	for _, cmdline := range cmdlines {
+		if b, err := os.ReadFile(cmdline); err == nil && string(b) == reader+"\x00"+path+"\x00" {
+			return true
+		}
+	}
+	return false
 }
