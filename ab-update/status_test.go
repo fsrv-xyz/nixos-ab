@@ -138,16 +138,16 @@ func TestHuman(t *testing.T) {
 		{
 			"a switch waiting for its confirmation, past a used-up image",
 			report{
-				State:      "waiting",
-				Waiting:    &waiting{Since: *at("14:00:12"), Timeout: "30s"},
-				BootStatus: "clean",
-				Live:       live{UsrHash: "f"},
+				State:        "waiting",
+				WaitingSince: at("14:00:12"),
+				BootStatus:   "clean",
+				Live:         live{UsrHash: "f"},
 				Images: []image{
 					{Name: "ab_1", Role: "booted", UsrHash: "a"},
 					{Name: "ab_5", Role: "used-up", UsrHash: "e", TriesLeft: tries(0), TriesDone: tries(3)},
 				},
 			},
-			`State: waiting for ab-update confirm since Thu 2026-11-26 14:00:12 UTC, for 30s
+			`State: waiting for ab-update confirm since Thu 2026-11-26 14:00:12 UTC
 
 ● Booted image: ab_1
        Usrhash: a

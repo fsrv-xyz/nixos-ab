@@ -8,7 +8,6 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -32,14 +31,9 @@ type live struct {
 	Since   *time.Time `json:"since,omitempty"`
 }
 
-type waiting struct {
-	Since   time.Time `json:"since"`
-	Timeout string    `json:"timeout"`
-}
-
 type report struct {
 	State        string     `json:"state"`
-	Waiting      *waiting   `json:"waiting,omitempty"`
+	WaitingSince *time.Time `json:"waitingSince,omitempty"`
 	BootStatus   string     `json:"bootStatus"`
 	RebootAt     *time.Time `json:"rebootAt,omitempty"`
 	FailedUnits  []string   `json:"failedUnits"`
@@ -99,8 +93,8 @@ func stamp(t time.Time) string { return t.Format("Mon 2006-01-02 15:04:05 MST") 
 func (r report) human() string {
 	var b strings.Builder
 	state := r.State
-	if r.Waiting != nil {
-		state = fmt.Sprintf("waiting for ab-update confirm since %s, for %s", stamp(r.Waiting.Since), r.Waiting.Timeout)
+	if r.WaitingSince != nil {
+		state = "waiting for ab-update confirm since " + stamp(*r.WaitingSince)
 	}
 	fmt.Fprintf(&b, "State: %s\n", state)
 	for _, img := range r.Images {
@@ -178,7 +172,7 @@ func nextElapse(timers []byte) (*time.Time, error) {
 }
 
 // status reports what runs, what booted and what boots next: for people, or with format short or pretty as JSON.
-func status(templates, format string) error {
+func status(format string) error {
 	indent := ""
 	switch format {
 	case "off", "short":
@@ -194,19 +188,18 @@ func status(templates, format string) error {
 	booted := usrHash(cmdline)
 	r := report{State: "idle", FailedUnits: []string{}, Live: live{UsrHash: booted}, Images: images(id, entries, booted)}
 
-	if info, err := os.Stat(fifo); err == nil && info.Mode().Type() == fs.ModeNamedPipe {
-		timeout, err := os.ReadFile(filepath.Join(templates, "rollback-timeout"))
-		if err != nil {
-			return err
-		}
-		r.State, r.Waiting = "waiting", &waiting{Since: info.ModTime(), Timeout: strings.TrimSpace(string(timeout))}
-	} else if info, err := os.Stat(lockPath); err == nil {
+	if info, err := os.Stat(lockPath); err == nil {
 		locks, err := os.ReadFile("/proc/locks")
 		if err != nil {
 			return err
 		}
 		if st := info.Sys().(*syscall.Stat_t); lockHeld(locks, st.Dev, st.Ino) {
 			r.State = "busy"
+			// with the lock: a switch that was killed leaves its fifo behind
+			if info, err := os.Stat(fifo); err == nil && info.Mode().Type() == fs.ModeNamedPipe {
+				since := info.ModTime()
+				r.State, r.WaitingSince = "waiting", &since
+			}
 		}
 	}
 
@@ -215,7 +208,9 @@ func status(templates, format string) error {
 		return fmt.Errorf("systemd-bless-boot status: %w", err)
 	}
 	r.BootStatus = strings.TrimSpace(string(s))
-	if !blessed(r.BootStatus) {
+	// as ab-rollback.service decides: a boot not blessed, and a UKI with tries to fall back to
+	fallback := slices.ContainsFunc(entries, func(e entry) bool { return !e.Selected && (e.TriesLeft == nil || *e.TriesLeft > 0) })
+	if (r.BootStatus == "indeterminate" || r.BootStatus == "dirty") && fallback {
 		timers, err := exec.Command(systemctl, "list-timers", "--all", "--output=json", "ab-rollback.timer").Output()
 		if err != nil {
 			return fmt.Errorf("systemctl list-timers: %w", err)

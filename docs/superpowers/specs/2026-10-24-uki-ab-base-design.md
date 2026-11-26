@@ -332,10 +332,11 @@ places (user). One command shows it, for people and, as JSON, for scripts (user)
 |---|---|---|
 | Layout | `bootc status`: a block per UKI, its role in the header (staged, booted, rollback, used-up), keys right-aligned to it; `●` for the booted image as bootc, rpm-ostree and systemctl, `×` for a used-up one as systemd's failed and updatectl's obsolete | my call from the tools compared, approved by the user |
 | Switch | rpm-ostree after `apply-live`: rows on the booted image, `Live` the image the last switch activated (`/run/ab-update/live`), `Kernel` when kernel, initrd or command line wait for a reboot | my call from the tools compared, approved by the user |
-| State | rpm-ostree's first line: `idle`, `busy` while a process holds the flock of `/run/ab-update.lock` (read from `/proc/locks`, so status never takes it), `waiting` while the fifo of a confirmation exists, since its mtime | my call |
-| Boot | `systemd-bless-boot status` verbatim, as RAUC shows the boot status; unblessed, when `ab-rollback.timer` elapses (`systemctl list-timers --output=json`); the failed units | my call |
+| State | rpm-ostree's first line: `idle`; `busy` while a process holds the flock of `/run/ab-update.lock`, read from `/proc/locks` so that status never takes it; `waiting`, since its mtime, while the fifo of a confirmation exists as well, as a killed switch leaves it behind (Codex review) | my call |
+| Boot | `systemd-bless-boot status` verbatim, as RAUC shows the boot status; when `ab-rollback.timer` elapses (`systemctl list-timers --output=json`) only where `ab-rollback.service` reboots, `indeterminate` or `dirty` with a UKI to fall back to (Codex review); the failed units | my call |
+| Confirm | `ab-update confirm` gives the reader of the fifo five seconds to come: the switch creates the fifo before systemd-run starts `cat`, so a confirm right after status saw the wait could fail (Codex review) | my call |
 | JSON | `-json=short\|pretty`, as `bootctl --json=` that ab-update reads itself; the text is for people, as bootc and updatectl say of theirs | user, my call for the form |
-| Left out | an exit code (rpm-ostree's `--pending-exit-77` is opt-in), versions on the server (`updatectl list`), ASCII glyphs without a UTF-8 locale, the end of a confirmation's window, as the switch knows only systemd's time span | my call |
+| Left out | an exit code (rpm-ostree's `--pending-exit-77` is opt-in), versions on the server (`updatectl list`), ASCII glyphs without a UTF-8 locale, the window of a confirmation: the switch has it only as systemd's time span, and the activation may change the configured one (Codex review) | my call |
 
 ### Success = the VM tests pass, with these added
 

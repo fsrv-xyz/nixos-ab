@@ -104,22 +104,24 @@ func TestBlessed(t *testing.T) {
 
 func TestConfirm(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "confirm")
-	if confirm(path) == nil {
+	if confirm(path, time.Second) == nil {
 		t.Fatal("no fifo: want an error")
 	}
 	if err := syscall.Mkfifo(path, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if confirm(path) == nil {
+	if confirm(path, 0) == nil {
 		t.Fatal("no reader: want an error")
 	}
 	read := make(chan error)
 	go func() {
+		// after the fifo, as the switch starts its reader
+		time.Sleep(100 * time.Millisecond)
 		_, err := os.ReadFile(path)
 		read <- err
 	}()
-	for confirm(path) != nil {
-		time.Sleep(10 * time.Millisecond)
+	if err := confirm(path, 5*time.Second); err != nil {
+		t.Fatal(err)
 	}
 	if err := <-read; err != nil {
 		t.Fatal(err)

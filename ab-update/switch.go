@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 const (
@@ -256,8 +257,13 @@ func awaitConfirmation(timeout string) error {
 }
 
 // confirm ends the wait of a switch: a fifo opens for writing only while it is read, so it fails when none waits.
-func confirm(path string) error {
+// The switch starts the reader after it creates the fifo: confirm gives it patience to come.
+func confirm(path string, patience time.Duration) error {
 	f, err := os.OpenFile(path, os.O_WRONLY|syscall.O_NONBLOCK, 0)
+	for deadline := time.Now().Add(patience); errors.Is(err, syscall.ENXIO) && time.Now().Before(deadline); {
+		time.Sleep(50 * time.Millisecond)
+		f, err = os.OpenFile(path, os.O_WRONLY|syscall.O_NONBLOCK, 0)
+	}
 	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENXIO) {
 		return errors.New("no switch awaits a confirmation")
 	}
