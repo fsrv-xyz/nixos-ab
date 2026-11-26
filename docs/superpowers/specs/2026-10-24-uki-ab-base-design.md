@@ -317,3 +317,29 @@ switch, as only a new login from there shows that it still gets in.
     serves a login from before the switch only once it waits.
 19. `update-host --switch` installs nothing on a device whose `ab-update` knows no
     `-confirm`.
+
+## Status (2026-11-26)
+
+### Intent
+
+After a switch a device runs another image than it booted, and `bootctl status` names the
+booted one; what runs, what boots next and whether a switch waits is spread over five
+places (user). One command shows it, for people and, as JSON, for scripts (user).
+
+### Decided how
+
+| Topic | Decision | By |
+|---|---|---|
+| Layout | `bootc status`: a block per UKI, its role in the header (staged, booted, rollback, used-up), keys right-aligned to it; `●` for the booted image as bootc, rpm-ostree and systemctl, `×` for a used-up one as systemd's failed and updatectl's obsolete | my call from the tools compared, approved by the user |
+| Switch | rpm-ostree after `apply-live`: rows on the booted image, `Live` the image the last switch activated (`/run/ab-update/live`), `Kernel` when kernel, initrd or command line wait for a reboot | my call from the tools compared, approved by the user |
+| State | rpm-ostree's first line: `idle`, `busy` while a process holds the flock of `/run/ab-update.lock` (read from `/proc/locks`, so status never takes it), `waiting` while the fifo of a confirmation exists, since its mtime | my call |
+| Boot | `systemd-bless-boot status` verbatim, as RAUC shows the boot status; unblessed, when `ab-rollback.timer` elapses (`systemctl list-timers --output=json`); the failed units | my call |
+| JSON | `-json=short\|pretty`, as `bootctl --json=` that ab-update reads itself; the text is for people, as bootc and updatectl say of theirs | user, my call for the form |
+| Left out | an exit code (rpm-ostree's `--pending-exit-77` is opt-in), versions on the server (`updatectl list`), ASCII glyphs without a UTF-8 locale, the end of a confirmation's window, as the switch knows only systemd's time span | my call |
+
+### Success = the VM tests pass, with these added
+
+20. `ab-update status` reports a held lock as busy, an active ab-overlay, the image a
+    switch activated beside the booted one, a staged image's tries and fallback, a kernel
+    that waits for a reboot, a used-up image, a live image whose UKI is gone and a blessed
+    counted boot; a confirmation sent once status sees the switch wait keeps the switch.

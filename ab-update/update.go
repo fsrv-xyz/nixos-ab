@@ -24,6 +24,8 @@ type entry struct {
 	Path     string
 	Default  bool
 	Selected bool
+	// nil without a boot counter
+	TriesLeft, TriesDone *int
 }
 
 var entryName = regexp.MustCompile(`^(.+)_([0-9]+)(\+[0-9]+(-[0-9]+)?)?\.efi$`)
@@ -35,6 +37,8 @@ func parseEntries(id string, bootctlJSON []byte) ([]entry, error) {
 		Cmdline    string
 		IsDefault  bool
 		IsSelected bool
+		TriesLeft  *int
+		TriesDone  *int
 	}
 	if err := json.Unmarshal(bootctlJSON, &list); err != nil {
 		return nil, fmt.Errorf("bootctl list: %w", err)
@@ -50,12 +54,14 @@ func parseEntries(id string, bootctlJSON []byte) ([]entry, error) {
 			return nil, fmt.Errorf("%s: %w", e.Path, err)
 		}
 		entries = append(entries, entry{
-			Number:   n,
-			UsrHash:  usrHash(e.Cmdline),
-			Init:     cmdlineValue(e.Cmdline, "init"),
-			Path:     e.Path,
-			Default:  e.IsDefault,
-			Selected: e.IsSelected,
+			Number:    n,
+			UsrHash:   usrHash(e.Cmdline),
+			Init:      cmdlineValue(e.Cmdline, "init"),
+			Path:      e.Path,
+			Default:   e.IsDefault,
+			Selected:  e.IsSelected,
+			TriesLeft: e.TriesLeft,
+			TriesDone: e.TriesDone,
 		})
 	}
 	return entries, nil

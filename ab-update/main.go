@@ -40,8 +40,9 @@ func main() {
 	log.SetPrefix("ab-update: ")
 	templates := flag.String("definitions", "/etc/ab-update", "`directory` of the transfer definition templates and the default source, url")
 	confirmed := flag.Bool("confirm", false, "with switch: undo it unless ab-update confirm runs within ab.rollback.timeout of its health check")
+	format := flag.String("json", "off", "with status: `mode` short or pretty prints JSON")
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "usage: ab-update [-definitions directory] [-confirm] [directory | URL | vacuum | switch | confirm]\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "usage: ab-update [-definitions directory] [-confirm] [-json mode] [directory | URL | vacuum | switch | confirm | status]\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -49,15 +50,18 @@ func main() {
 		flag.Usage()
 		os.Exit(2)
 	}
-	if err := run(*templates, flag.Arg(0), *confirmed); err != nil {
+	if err := run(*templates, flag.Arg(0), *confirmed, *format); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(templates, arg string, confirmed bool) error {
-	// before the lock, which the switch it confirms holds
+func run(templates, arg string, confirmed bool, format string) error {
+	// before the lock, which the switch they confirm or report on holds
 	if arg == "confirm" {
 		return confirm(fifo)
+	}
+	if arg == "status" {
+		return status(templates, format)
 	}
 	if arg == "switch" && os.Getenv(inUnit) == "" {
 		return inTransientUnit(templates, confirmed)
@@ -65,24 +69,7 @@ func run(templates, arg string, confirmed bool) error {
 	if err := lock(); err != nil {
 		return err
 	}
-	osRelease, err := os.Open("/etc/os-release")
-	if err != nil {
-		return err
-	}
-	defer osRelease.Close()
-	id, err := imageID(osRelease)
-	if err != nil {
-		return err
-	}
-	cmdline, err := os.ReadFile("/proc/cmdline")
-	if err != nil {
-		return err
-	}
-	list, err := exec.Command(bootctl, "list", "--json=short").Output()
-	if err != nil {
-		return fmt.Errorf("bootctl list: %w", err)
-	}
-	entries, err := parseEntries(id, list)
+	id, entries, cmdline, err := readEntries()
 	if err != nil {
 		return err
 	}
@@ -119,7 +106,7 @@ func run(templates, arg string, confirmed bool) error {
 		return fmt.Errorf("%s: usrhash holds no root hash", location)
 	}
 
-	p, err := decide(id, entries, usrHash(string(cmdline)), incoming)
+	p, err := decide(id, entries, usrHash(cmdline), incoming)
 	if err != nil {
 		return err
 	}
@@ -148,11 +135,36 @@ func run(templates, arg string, confirmed bool) error {
 	return nil
 }
 
+// readEntries gives the image's ID, its UKIs on the ESP and the kernel command line of this boot.
+func readEntries() (string, []entry, string, error) {
+	osRelease, err := os.Open("/etc/os-release")
+	if err != nil {
+		return "", nil, "", err
+	}
+	defer osRelease.Close()
+	id, err := imageID(osRelease)
+	if err != nil {
+		return "", nil, "", err
+	}
+	cmdline, err := os.ReadFile("/proc/cmdline")
+	if err != nil {
+		return "", nil, "", err
+	}
+	list, err := exec.Command(bootctl, "list", "--json=short").Output()
+	if err != nil {
+		return "", nil, "", fmt.Errorf("bootctl list: %w", err)
+	}
+	entries, err := parseEntries(id, list)
+	return id, entries, string(cmdline), err
+}
+
+const lockPath = "/run/ab-update.lock"
+
 // held until exit: an install must not replace the image a switch is activating
 var lockFile *os.File
 
 func lock() error {
-	f, err := os.OpenFile("/run/ab-update.lock", os.O_CREATE|os.O_RDONLY, 0o600)
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDONLY, 0o600)
 	if err != nil {
 		return err
 	}

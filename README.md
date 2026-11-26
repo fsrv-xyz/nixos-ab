@@ -221,6 +221,37 @@ again is no longer on the disk, where the failed image replaced it: a reboot
 starts the image the device booted from. `ab-update` says so; roll the lost
 image out again to keep it.
 
+### Status
+
+`ab-update status` shows what boots next, what booted and what runs, laid out
+as `bootc status` does:
+
+```
+$ ab-update status
+State: idle
+
+  Staged image: router_4
+       Usrhash: 3f2a9c1e…
+         Tries: 3 left, then router_3
+
+● Booted image: router_3
+       Usrhash: 9b07d4a2…
+   Boot status: good
+          Live: router_4 since Thu 2026-11-26 13:58:00 CET
+        Kernel: of router_3 until the next reboot
+  Store in RAM: 412 MiB
+```
+
+`State` is `busy` while another `ab-update` runs, and says since when a switch
+waits for `ab-update confirm`. `Live` is the image the last switch activated;
+while a switch runs, it still names the one before. `Boot status` is that of
+`systemd-bless-boot status`; a boot not blessed yet adds when `ab-rollback`
+reboots it, and the failed units. Other UKIs show as `Rollback image`, or as
+`Used-up image` once systemd-boot skips them.
+
+`ab-update -json=short status`, or `pretty`, gives the same as JSON for
+scripts; the text is for people and may change.
+
 ## State
 
 `/` is tmpfs. An image that sets `ab.stateSizeMiB` gets a partition of that
@@ -354,7 +385,7 @@ numbers the next image above the used-up one, keeping `/state` throughout;
 `ab-overlay` changes and deletes store files until a reboot. A second VM
 switches to updates without a reboot, more than once per boot, returns from one
 that fails its health check or waits for a confirmation in vain and reboots when
-that return fails too. A third VM
+that return fails too, and `ab-update status` reports each of these states. A third VM
 provisions a file into a plain state partition. `new-host` runs with throwaway
 keys and checks who can decrypt what. `install-host` writes a host to the disk
 of a rescue VM, which then boots it as the host, and `update-host` updates it
